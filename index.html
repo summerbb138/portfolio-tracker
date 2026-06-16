@@ -393,6 +393,7 @@ body {
         <button class="action-item" onclick="closeSheet('actionsSheet'); setTimeout(openCashSheet, 200)">💵 &nbsp;Set Cash Balance</button>
         <button class="action-item" onclick="closeSheet('actionsSheet'); exportData()">📤 &nbsp;Export Portfolio</button>
         <button class="action-item" onclick="closeSheet('actionsSheet'); importData()">📥 &nbsp;Import Portfolio</button>
+        <button class="action-item" onclick="closeSheet('actionsSheet'); restoreLastExport()">🔄 &nbsp;Restore Last Backup</button>
       </div>
       <div class="action-group">
         <button class="action-item destructive" onclick="closeSheet('actionsSheet'); clearAll()">🗑️ &nbsp;Clear All Holdings</button>
@@ -525,6 +526,44 @@ function csym(currency) { return CURRENCY_SYMBOL[currency] || currency + ' '; }
 const STORAGE_KEY = 'portfolio_positions';
 const CASH_KEY = 'portfolio_cash';
 const CASH_MULTI_KEY = 'portfolio_cash_multi';
+const IDB_NAME = 'PortfolioDB';
+const IDB_STORE = 'data';
+const IDB_VERSION = 1;
+
+// IndexedDB helpers for durable backup
+function openIDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(IDB_NAME, IDB_VERSION);
+    req.onupgradeneeded = () => req.result.createObjectStore(IDB_STORE);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function idbSet(key, value) {
+  try {
+    const db = await openIDB();
+    const tx = db.transaction(IDB_STORE, 'readwrite');
+    tx.objectStore(IDB_STORE).put(value, key);
+    await new Promise((res, rej) => { tx.oncomplete = res; tx.onerror = rej; });
+    db.close();
+  } catch(e) { console.error('IDB write failed:', e); }
+}
+async function idbGet(key) {
+  try {
+    const db = await openIDB();
+    const tx = db.transaction(IDB_STORE, 'readonly');
+    const req = tx.objectStore(IDB_STORE).get(key);
+    const val = await new Promise((res, rej) => { req.onsuccess = () => res(req.result); req.onerror = rej; });
+    db.close();
+    return val;
+  } catch(e) { console.error('IDB read failed:', e); return undefined; }
+}
+
+function backupToIDB() {
+  const snapshot = { positions, cashBalances, exchangeRates, savedAt: new Date().toISOString() };
+  idbSet('portfolio_backup', snapshot);
+}
+
 let positions = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
 let exchangeRates = JSON.parse(localStorage.getItem('portfolio_rates') || '{}');
 let cashBalances = JSON.parse(localStorage.getItem(CASH_MULTI_KEY) || '{}');
@@ -532,6 +571,21 @@ let cashBalances = JSON.parse(localStorage.getItem(CASH_MULTI_KEY) || '{}');
 if (Object.keys(cashBalances).length === 0) {
   const oldCash = parseFloat(localStorage.getItem(CASH_KEY)) || 0;
   if (oldCash > 0) cashBalances.USD = oldCash;
+}
+
+// Restore from IndexedDB if localStorage was wiped
+async function restoreFromIDB() {
+  if (positions.length === 0 && Object.keys(cashBalances).filter(k => cashBalances[k]).length === 0) {
+    const backup = await idbGet('portfolio_backup');
+    if (backup && backup.positions && backup.positions.length > 0) {
+      positions = backup.positions;
+      cashBalances = backup.cashBalances || {};
+      if (backup.exchangeRates) exchangeRates = backup.exchangeRates;
+      save(); saveCashBalances(); saveRates();
+      render();
+      showToast('Data restored from backup');
+    }
+  }
 }
 let editIndex = -1;
 let activeTab = 'cost';
@@ -549,8 +603,8 @@ let sortIndex = 0;
 let actionIndex = -1;
 let selectedMarket = 'US';
 
-function save() { localStorage.setItem(STORAGE_KEY, JSON.stringify(positions)); }
-function saveCashBalances() { localStorage.setItem(CASH_MULTI_KEY, JSON.stringify(cashBalances)); }
+function save() { localStorage.setItem(STORAGE_KEY, JSON.stringify(positions)); backupToIDB(); }
+function saveCashBalances() { localStorage.setItem(CASH_MULTI_KEY, JSON.stringify(cashBalances)); backupToIDB(); }
 function saveRates() { localStorage.setItem('portfolio_rates', JSON.stringify(exchangeRates)); }
 function getCashCurrencies() {
   const curs = new Set(Object.keys(cashBalances).filter(c => cashBalances[c] > 0));
@@ -1039,13 +1093,25 @@ async function refreshAll() {
 
 // Export/Import
 function exportData() {
-  const data = JSON.stringify({ positions, cashBalances, exportedAt: new Date().toISOString() }, null, 2);
+  const exportObj = { positions, cashBalances, exportedAt: new Date().toISOString() };
+  const data = JSON.stringify(exportObj, null, 2);
+  idbSet('last_export', exportObj);
   const blob = new Blob([data], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url; a.download = 'portfolio-backup.json'; a.click();
   URL.revokeObjectURL(url);
   showToast('Portfolio exported');
+}
+
+async function restoreLastExport() {
+  const backup = await idbGet('last_export');
+  if (!backup || !backup.positions) { showToast('No backup found'); return; }
+  const age = backup.exportedAt ? new Date(backup.exportedAt).toLocaleString() : 'unknown';
+  positions = backup.positions;
+  cashBalances = backup.cashBalances || {};
+  save(); saveCashBalances(); render(); refreshAll();
+  showToast(`Restored from backup (${age})`);
 }
 
 function importData() { document.getElementById('fileInput').click(); }
@@ -1261,7 +1327,7 @@ if ('serviceWorker' in navigator) {
 // Init
 buildMarketChips();
 render();
-refreshAll();
+restoreFromIDB().then(() => refreshAll());
 </script>
 </body>
 </html>
