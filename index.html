@@ -925,7 +925,10 @@ async function fetchPrice(index) {
 async function refreshAll() {
   showToast('Refreshing prices...');
   await fetchExchangeRates();
-  const results = await Promise.allSettled(positions.map((_, i) => fetchPrice(i)));
+  const results = [];
+  for (let i = 0; i < positions.length; i++) {
+    results.push(await fetchPrice(i).then(v => ({status:'fulfilled',value:v})).catch(e => ({status:'rejected',reason:e})));
+  }
   localStorage.setItem('portfolio_last_updated', new Date().toISOString());
   render();
   const updated = results.filter(r => r.status === 'fulfilled' && r.value).length;
