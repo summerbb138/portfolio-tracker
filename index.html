@@ -1024,7 +1024,8 @@ function render() {
 
   positions.forEach((p, i) => {
     const mkt = MARKET_MAP[p.market];
-    const rate = p.rate || 1;
+    const cur = mkt.currency;
+    const rate = cur === 'USD' ? 1 : (exchangeRates[cur] || p.rate || 1);
     const costUSD = (p.costBasis / rate) * p.qty;
     const valueUSD = p.price != null ? (p.price / rate) * p.qty : null;
     const pnl = valueUSD != null ? valueUSD - costUSD : null;
