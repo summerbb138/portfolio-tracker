@@ -276,10 +276,7 @@ body {
       <div class="value" id="totalReturn">0.00%</div>
     </div>
   </div>
-  <div class="cash-row" onclick="openCashSheet()">
-    <div class="cash-label">💵 Cash</div>
-    <div class="cash-value" id="cashDisplay">$0.00</div>
-  </div>
+  <div id="cashRows"></div>
   <div class="updated" id="lastUpdated"></div>
 </div>
 
@@ -339,7 +336,8 @@ body {
         </div>
       </div>
       <div id="addSharesSection" style="display:none">
-        <button class="toolbar-btn" style="background:rgba(10,132,255,0.12);color:var(--blue);width:100%;margin-top:8px" onclick="closeSheet('stockSheet'); setTimeout(()=>openAddShares(editIndex),200)">Add Shares at Different Price</button>
+        <button class="toolbar-btn" style="background:rgba(10,132,255,0.12);color:var(--blue);width:100%;margin-top:8px" onclick="closeSheet('stockSheet'); setTimeout(()=>openAddShares(editIndex),200)">Buy More Shares</button>
+        <button class="toolbar-btn" style="background:rgba(255,69,58,0.12);color:var(--red);width:100%;margin-top:8px" onclick="closeSheet('stockSheet'); setTimeout(()=>openSellShares(editIndex),200)">Sell Shares</button>
       </div>
       <div id="deleteSection" style="display:none">
         <button class="toolbar-btn" style="background:rgba(255,69,58,0.12);color:var(--red);width:100%;margin-top:8px" onclick="deletePosition()">Delete Position</button>
@@ -398,6 +396,36 @@ body {
   </div>
 </div>
 
+<!-- Sell Shares Sheet -->
+<div class="sheet-overlay" id="sellSharesSheet" onclick="closeSheet('sellSharesSheet', event)">
+  <div class="sheet" onclick="event.stopPropagation()">
+    <div class="sheet-handle"></div>
+    <div class="sheet-header">
+      <button class="sheet-cancel" onclick="closeSheet('sellSharesSheet')">Cancel</button>
+      <h2 id="sellSharesTitle">Sell Shares</h2>
+      <button class="sheet-save" onclick="saveSellShares()">Sell</button>
+    </div>
+    <div class="sheet-body">
+      <div id="sellSharesInfo" style="font-size:14px;color:var(--text2);padding:0 0 16px;line-height:1.5"></div>
+      <div class="form-section">
+        <div class="form-section-label">Sale Details</div>
+        <div class="form-fields">
+          <div class="form-row">
+            <label>Sell Price</label>
+            <input type="number" id="sellSharesPrice" placeholder="Per share" step="any" inputmode="decimal">
+          </div>
+          <div class="form-row">
+            <label>Quantity</label>
+            <input type="number" id="sellSharesQty" placeholder="Shares to sell" step="any" inputmode="decimal">
+          </div>
+        </div>
+      </div>
+      <div id="sellSharesPreview" style="font-size:14px;color:var(--text3);padding:8px 0;line-height:1.6"></div>
+      <button class="toolbar-btn" style="background:rgba(255,69,58,0.12);color:var(--red);width:100%;margin-top:8px" onclick="sellAll()">Sell All Shares</button>
+    </div>
+  </div>
+</div>
+
 <!-- Position Action Sheet -->
 <div class="sheet-overlay" id="posActionSheet" onclick="closeSheet('posActionSheet', event)">
   <div class="sheet" onclick="event.stopPropagation()">
@@ -406,7 +434,8 @@ body {
       <div id="posActionTitle" style="text-align:center;padding:12px 0 4px;font-size:13px;color:var(--text3)"></div>
       <div class="action-group">
         <button class="action-item" onclick="editFromAction()">✏️ &nbsp;Edit Position</button>
-        <button class="action-item" onclick="addSharesFromAction()">➕ &nbsp;Add Shares</button>
+        <button class="action-item" onclick="addSharesFromAction()">➕ &nbsp;Buy More Shares</button>
+        <button class="action-item" onclick="sellSharesFromAction()">📉 &nbsp;Sell Shares</button>
         <button class="action-item" onclick="moveUp()">↑ &nbsp;Move Up</button>
         <button class="action-item" onclick="moveDown()">↓ &nbsp;Move Down</button>
       </div>
@@ -426,20 +455,12 @@ body {
     <div class="sheet-handle"></div>
     <div class="sheet-header">
       <button class="sheet-cancel" onclick="closeSheet('cashSheet')">Cancel</button>
-      <h2>Cash Position</h2>
+      <h2>Cash Positions</h2>
       <button class="sheet-save" onclick="saveCash()">Save</button>
     </div>
     <div class="sheet-body">
-      <div id="cashInfo" style="font-size:14px;color:var(--text2);padding:0 0 16px;line-height:1.5"></div>
-      <div class="form-section">
-        <div class="form-section-label">Cash Balance (USD)</div>
-        <div class="form-fields">
-          <div class="form-row">
-            <label>Amount</label>
-            <input type="number" id="inputCash" placeholder="USD amount" step="any" inputmode="decimal">
-          </div>
-        </div>
-      </div>
+      <div id="cashInfo" style="font-size:14px;color:var(--text2);padding:0 0 16px;line-height:1.5">Set cash balances for each currency in your portfolio.</div>
+      <div id="cashFields"></div>
     </div>
   </div>
 </div>
@@ -466,39 +487,69 @@ function csym(currency) { return CURRENCY_SYMBOL[currency] || currency + ' '; }
 
 const STORAGE_KEY = 'portfolio_positions';
 const CASH_KEY = 'portfolio_cash';
+const CASH_MULTI_KEY = 'portfolio_cash_multi';
 let positions = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
 let exchangeRates = JSON.parse(localStorage.getItem('portfolio_rates') || '{}');
-let cashBalance = parseFloat(localStorage.getItem(CASH_KEY)) || 0;
+let cashBalances = JSON.parse(localStorage.getItem(CASH_MULTI_KEY) || '{}');
+// Migrate old single-currency cash to multi-currency
+if (Object.keys(cashBalances).length === 0) {
+  const oldCash = parseFloat(localStorage.getItem(CASH_KEY)) || 0;
+  if (oldCash > 0) cashBalances.USD = oldCash;
+}
 let editIndex = -1;
 let actionIndex = -1;
 let selectedMarket = 'US';
 
 function save() { localStorage.setItem(STORAGE_KEY, JSON.stringify(positions)); }
-function saveCashBalance() { localStorage.setItem(CASH_KEY, JSON.stringify(cashBalance)); }
+function saveCashBalances() { localStorage.setItem(CASH_MULTI_KEY, JSON.stringify(cashBalances)); }
 function saveRates() { localStorage.setItem('portfolio_rates', JSON.stringify(exchangeRates)); }
+function getCashCurrencies() {
+  const curs = new Set(Object.keys(cashBalances).filter(c => cashBalances[c] > 0));
+  positions.forEach(p => curs.add(MARKET_MAP[p.market].currency));
+  curs.add('USD');
+  return [...curs].sort((a, b) => a === 'USD' ? -1 : b === 'USD' ? 1 : a.localeCompare(b));
+}
+function totalCashUSD() {
+  let total = 0;
+  for (const [cur, amt] of Object.entries(cashBalances)) {
+    if (!amt) continue;
+    const rate = cur === 'USD' ? 1 : (exchangeRates[cur] || 1);
+    total += amt / rate;
+  }
+  return total;
+}
 
 function openCashSheet() {
-  document.getElementById('inputCash').value = cashBalance || '';
-  document.getElementById('cashInfo').innerHTML = cashBalance > 0
-    ? `Current cash balance: <b>${fmtUSD(cashBalance)}</b>`
-    : 'Set your starting cash position. It will update automatically as you buy or sell stocks.';
+  const currencies = getCashCurrencies();
+  const fieldsEl = document.getElementById('cashFields');
+  fieldsEl.innerHTML = currencies.map(cur => {
+    const flag = MARKETS.find(m => m.currency === cur)?.flag || '';
+    const val = cashBalances[cur] || 0;
+    return `<div class="form-section">
+      <div class="form-section-label">${flag} ${cur} Cash</div>
+      <div class="form-fields">
+        <div class="form-row">
+          <label>${csym(cur)}</label>
+          <input type="number" class="cash-input" data-currency="${cur}" value="${val || ''}" placeholder="0" step="any" inputmode="decimal">
+        </div>
+      </div>
+    </div>`;
+  }).join('');
   openSheet('cashSheet');
-  setTimeout(() => document.getElementById('inputCash').focus(), 350);
+  setTimeout(() => { const first = fieldsEl.querySelector('input'); if (first) first.focus(); }, 350);
 }
 
 function saveCash() {
-  const val = parseFloat(document.getElementById('inputCash').value);
-  if (isNaN(val) || val < 0) { showToast('Enter a valid amount'); return; }
-  cashBalance = val;
-  saveCashBalance();
+  document.querySelectorAll('.cash-input').forEach(input => {
+    const cur = input.dataset.currency;
+    const val = parseFloat(input.value) || 0;
+    if (val > 0) cashBalances[cur] = val;
+    else delete cashBalances[cur];
+  });
+  saveCashBalances();
   closeSheet('cashSheet');
   render();
-  showToast('Cash balance updated');
-}
-
-function adjustCash(amountUSD) {
-  cashBalance = Math.max(0, cashBalance + amountUSD);
-  saveCashBalance();
+  showToast('Cash balances updated');
 }
 
 // Build market chips
@@ -559,21 +610,28 @@ function savePosition() {
   if (isNaN(qty) || qty === 0) { showToast('Enter a valid quantity'); return; }
 
   const mkt = MARKET_MAP[selectedMarket];
-  const rate = mkt.currency === 'USD' ? 1 : (exchangeRates[mkt.currency] || 1);
+  const cur = mkt.currency;
+  const rate = cur === 'USD' ? 1 : (exchangeRates[cur] || 1);
   const pos = { market: selectedMarket, ticker, costBasis, qty, price: null, rate };
+  const newCostLocal = costBasis * qty;
 
   if (editIndex >= 0) {
     const old = positions[editIndex];
-    const oldCostUSD = (old.costBasis / old.rate) * old.qty;
+    const oldCur = MARKET_MAP[old.market].currency;
+    const oldCostLocal = old.costBasis * old.qty;
+    if (oldCur === cur) {
+      cashBalances[cur] = (cashBalances[cur] || 0) + oldCostLocal - newCostLocal;
+    } else {
+      cashBalances[oldCur] = (cashBalances[oldCur] || 0) + oldCostLocal;
+      cashBalances[cur] = (cashBalances[cur] || 0) - newCostLocal;
+    }
     pos.price = old.price;
     positions[editIndex] = pos;
-    const newCostUSD = (costBasis / rate) * qty;
-    adjustCash(oldCostUSD - newCostUSD);
   } else {
+    cashBalances[cur] = (cashBalances[cur] || 0) - newCostLocal;
     positions.push(pos);
-    const costUSD = (costBasis / rate) * qty;
-    adjustCash(-costUSD);
   }
+  saveCashBalances();
   save();
   closeSheet('stockSheet');
   render();
@@ -585,13 +643,15 @@ function savePosition() {
 function deletePosition() {
   if (editIndex >= 0) {
     const p = positions[editIndex];
-    const costUSD = (p.costBasis / (p.rate || 1)) * p.qty;
-    adjustCash(costUSD);
+    const cur = MARKET_MAP[p.market].currency;
+    const costLocal = p.costBasis * p.qty;
+    cashBalances[cur] = (cashBalances[cur] || 0) + costLocal;
+    saveCashBalances();
     positions.splice(editIndex, 1);
     save();
     closeSheet('stockSheet');
     render();
-    showToast(`${p.ticker} removed · ${fmtUSD(costUSD)} returned to cash`);
+    showToast(`${p.ticker} removed · ${csym(cur)}${fmt(costLocal, cur === 'JPY' ? 0 : 2)} returned to cash`);
   }
 }
 
@@ -663,26 +723,128 @@ function saveAddShares() {
 
   const totalCost = (p.costBasis * p.qty) + (newPrice * newQty);
   const totalQty = p.qty + newQty;
-  const rate = p.rate || 1;
-  const purchaseCostUSD = (newPrice / rate) * newQty;
+  const cur = MARKET_MAP[p.market].currency;
+  const purchaseCostLocal = newPrice * newQty;
+  cashBalances[cur] = (cashBalances[cur] || 0) - purchaseCostLocal;
+  saveCashBalances();
   p.costBasis = totalCost / totalQty;
   p.qty = totalQty;
-  adjustCash(-purchaseCostUSD);
   save();
   closeSheet('addSharesSheet');
   render();
-  showToast(`${p.ticker} updated · ${fmt(totalQty, totalQty % 1 === 0 ? 0 : 2)} shares at avg ${fmt(p.costBasis, 2)}`);
+  const cd = (cur === 'JPY' || cur === 'CNY') ? 0 : 2;
+  showToast(`Bought ${fmt(newQty, newQty % 1 === 0 ? 0 : 2)} ${p.ticker} · ${csym(cur)}${fmt(purchaseCostLocal, cd)} from cash`);
+}
+
+function sellSharesFromAction() {
+  closeSheet('posActionSheet');
+  setTimeout(() => openSellShares(actionIndex), 200);
+}
+
+let sellSharesIndex = -1;
+
+function openSellShares(index) {
+  sellSharesIndex = index;
+  const p = positions[index];
+  const mkt = MARKET_MAP[p.market];
+  const isJPY = mkt.currency === 'JPY';
+  const cd = isJPY ? 0 : 2;
+  document.getElementById('sellSharesTitle').textContent = `Sell ${p.ticker}`;
+  document.getElementById('sellSharesInfo').innerHTML =
+    `Current: <b>${fmt(p.qty, p.qty % 1 === 0 ? 0 : 2)}</b> shares at <b>${csym(mkt.currency)}${fmt(p.costBasis, cd)}</b> avg cost`;
+  document.getElementById('sellSharesPrice').value = p.price || '';
+  document.getElementById('sellSharesQty').value = '';
+  document.getElementById('sellSharesPreview').textContent = '';
+  openSheet('sellSharesSheet');
+
+  const priceInput = document.getElementById('sellSharesPrice');
+  const qtyInput = document.getElementById('sellSharesQty');
+  const updatePreview = () => {
+    const sellPrice = parseFloat(priceInput.value);
+    const sellQty = parseFloat(qtyInput.value);
+    if (!isNaN(sellPrice) && sellPrice > 0 && !isNaN(sellQty) && sellQty > 0) {
+      if (sellQty > p.qty) {
+        document.getElementById('sellSharesPreview').innerHTML =
+          `<span style="color:var(--red)">Cannot sell more than ${fmt(p.qty, p.qty % 1 === 0 ? 0 : 2)} shares</span>`;
+        return;
+      }
+      const proceeds = sellPrice * sellQty;
+      const costOfSold = p.costBasis * sellQty;
+      const gainLoss = proceeds - costOfSold;
+      const gainPct = costOfSold > 0 ? (gainLoss / costOfSold) * 100 : 0;
+      const glClass = gainLoss >= 0 ? 'positive' : 'negative';
+      const glSign = gainLoss >= 0 ? '+' : '';
+      const remaining = p.qty - sellQty;
+      let preview = `Proceeds: <b>${csym(mkt.currency)}${fmt(proceeds, cd)}</b><br>`;
+      preview += `P&L on sale: <span class="${glClass}"><b>${glSign}${csym(mkt.currency)}${fmt(gainLoss, cd)} (${glSign}${fmt(gainPct)}%)</b></span><br>`;
+      if (remaining > 0) {
+        preview += `Remaining: <b>${fmt(remaining, remaining % 1 === 0 ? 0 : 2)}</b> shares at <b>${csym(mkt.currency)}${fmt(p.costBasis, cd)}</b>`;
+      } else {
+        preview += `<span style="color:var(--orange)">Position will be fully closed</span>`;
+      }
+      document.getElementById('sellSharesPreview').innerHTML = preview;
+    } else {
+      document.getElementById('sellSharesPreview').textContent = '';
+    }
+  };
+  priceInput.oninput = updatePreview;
+  qtyInput.oninput = updatePreview;
+
+  setTimeout(() => qtyInput.focus(), 350);
+}
+
+function saveSellShares() {
+  const p = positions[sellSharesIndex];
+  if (!p) return;
+  const sellPrice = parseFloat(document.getElementById('sellSharesPrice').value);
+  const sellQty = parseFloat(document.getElementById('sellSharesQty').value);
+  const mkt = MARKET_MAP[p.market];
+  const cur = mkt.currency;
+
+  if (isNaN(sellPrice) || sellPrice <= 0) { showToast('Enter the sell price'); return; }
+  if (isNaN(sellQty) || sellQty <= 0) { showToast('Enter the quantity to sell'); return; }
+  if (sellQty > p.qty) { showToast('Cannot sell more than you own'); return; }
+
+  const proceeds = sellPrice * sellQty;
+  const remaining = p.qty - sellQty;
+
+  if (remaining <= 0.0001) {
+    positions.splice(sellSharesIndex, 1);
+  } else {
+    p.qty = remaining;
+  }
+
+  cashBalances[cur] = (cashBalances[cur] || 0) + proceeds;
+  saveCashBalances();
+  save();
+  closeSheet('sellSharesSheet');
+  render();
+
+  const cd = (cur === 'JPY' || cur === 'CNY') ? 0 : 2;
+  const gainLoss = proceeds - (p.costBasis * sellQty);
+  const glSign = gainLoss >= 0 ? '+' : '';
+  showToast(`Sold ${fmt(sellQty, sellQty % 1 === 0 ? 0 : 2)} ${p.ticker} · ${glSign}${csym(cur)}${fmt(gainLoss, cd)} P&L`);
+}
+
+function sellAll() {
+  const p = positions[sellSharesIndex];
+  if (!p) return;
+  document.getElementById('sellSharesQty').value = p.qty;
+  document.getElementById('sellSharesQty').dispatchEvent(new Event('input'));
 }
 
 function deleteFromAction() {
   const p = positions[actionIndex];
-  const costUSD = (p.costBasis / (p.rate || 1)) * p.qty;
-  adjustCash(costUSD);
+  const cur = MARKET_MAP[p.market].currency;
+  const returnAmt = p.costBasis * p.qty;
+  cashBalances[cur] = (cashBalances[cur] || 0) + returnAmt;
+  saveCashBalances();
   positions.splice(actionIndex, 1);
   save();
   closeSheet('posActionSheet');
   render();
-  showToast(`${p.ticker} removed · ${fmtUSD(costUSD)} returned to cash`);
+  const cd = (cur === 'JPY' || cur === 'CNY') ? 0 : 2;
+  showToast(`${p.ticker} removed · ${csym(cur)}${fmt(returnAmt, cd)} returned to cash`);
 }
 
 function moveUp() {
@@ -703,8 +865,9 @@ function moveDown() {
 
 function openMoreActions() { openSheet('actionsSheet'); }
 
-// API - try local server first, then CORS proxy fallback
+// API
 const CORS_PROXY = 'https://corsproxy.io/?';
+const isLocalServer = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
 
 async function fetchJSON(url, timeout = 10000) {
   const r = await fetch(url, { signal: AbortSignal.timeout(timeout) });
@@ -715,9 +878,10 @@ async function fetchJSON(url, timeout = 10000) {
 async function fetchExchangeRates() {
   try {
     let data;
-    try {
-      data = await fetchJSON('/api/rates', 5000);
-    } catch(e) {
+    if (isLocalServer) {
+      try { data = await fetchJSON('/api/rates', 5000); } catch(e) {}
+    }
+    if (!data) {
       data = await fetchJSON('https://open.er-api.com/v6/latest/USD', 10000);
     }
     if (data.result === 'success') {
@@ -734,38 +898,46 @@ async function fetchExchangeRates() {
 
 async function fetchPrice(index) {
   const p = positions[index];
-  if (!p) return;
+  if (!p) return false;
   const mkt = MARKET_MAP[p.market];
   const symbol = p.ticker + mkt.suffix;
-  const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=1d`;
+  const oldPrice = p.price;
   try {
-    let data;
-    try {
-      const r = await fetchJSON(`/api/quote/${encodeURIComponent(symbol)}`, 5000);
-      if (r.price) { p.price = r.price; save(); render(); return; }
-    } catch(e) {}
-    data = await fetchJSON(CORS_PROXY + encodeURIComponent(yahooUrl), 12000);
+    if (isLocalServer) {
+      try {
+        const r = await fetchJSON(`/api/quote/${encodeURIComponent(symbol)}`, 5000);
+        if (r.price) { p.price = r.price; save(); render(); return p.price !== oldPrice; }
+      } catch(e) {}
+    }
+    const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=1d`;
+    const data = await fetchJSON(CORS_PROXY + encodeURIComponent(yahooUrl), 12000);
     const meta = data?.chart?.result?.[0]?.meta;
     if (meta?.regularMarketPrice) {
       p.price = meta.regularMarketPrice;
       save();
       render();
+      return p.price !== oldPrice;
     }
   } catch(e) { console.error(`Price fetch failed for ${symbol}:`, e); }
+  return false;
 }
 
 async function refreshAll() {
   showToast('Refreshing prices...');
   await fetchExchangeRates();
-  await Promise.allSettled(positions.map((_, i) => fetchPrice(i)));
+  const results = await Promise.allSettled(positions.map((_, i) => fetchPrice(i)));
   localStorage.setItem('portfolio_last_updated', new Date().toISOString());
   render();
-  showToast('Prices updated');
+  const updated = results.filter(r => r.status === 'fulfilled' && r.value).length;
+  const failed = results.filter(r => r.status === 'rejected').length;
+  if (failed > 0) showToast(`${updated} updated · ${failed} failed`);
+  else if (updated > 0) showToast(`${updated} price${updated > 1 ? 's' : ''} changed`);
+  else showToast('Prices are current');
 }
 
 // Export/Import
 function exportData() {
-  const data = JSON.stringify({ positions, cashBalance, exportedAt: new Date().toISOString() }, null, 2);
+  const data = JSON.stringify({ positions, cashBalances, exportedAt: new Date().toISOString() }, null, 2);
   const blob = new Blob([data], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -785,7 +957,8 @@ function handleImport(e) {
       const data = JSON.parse(ev.target.result);
       if (data.positions && Array.isArray(data.positions)) {
         positions = data.positions;
-        if (data.cashBalance != null) { cashBalance = data.cashBalance; saveCashBalance(); }
+        if (data.cashBalances) { cashBalances = data.cashBalances; saveCashBalances(); }
+        else if (data.cashBalance != null) { cashBalances = { USD: data.cashBalance }; saveCashBalances(); }
         save(); render(); refreshAll();
         showToast(`Imported ${positions.length} positions`);
       }
@@ -817,13 +990,25 @@ function render() {
   const empty = document.getElementById('emptyState');
   const header = document.getElementById('positionsHeader');
 
-  document.getElementById('cashDisplay').textContent = fmtUSD(cashBalance);
+  // Render cash rows in summary
+  const cashRowsEl = document.getElementById('cashRows');
+  const cashCurs = getCashCurrencies();
+  const totalCashInUSD = totalCashUSD();
+  cashRowsEl.innerHTML = cashCurs.map(cur => {
+    const amt = cashBalances[cur] || 0;
+    const flag = MARKETS.find(m => m.currency === cur)?.flag || '💵';
+    const cd = (cur === 'JPY' || cur === 'CNY') ? 0 : 2;
+    return `<div class="cash-row" onclick="openCashSheet()">
+      <div class="cash-label">${flag} ${cur} Cash</div>
+      <div class="cash-value">${csym(cur)}${fmt(amt, cd)}</div>
+    </div>`;
+  }).join('');
 
   if (positions.length === 0) {
     list.innerHTML = '';
     empty.style.display = 'block';
     header.style.display = 'none';
-    document.getElementById('totalValue').textContent = fmtUSD(cashBalance);
+    document.getElementById('totalValue').textContent = fmtUSD(totalCashInUSD);
     document.getElementById('totalCost').textContent = '$0.00';
     document.getElementById('totalPnl').textContent = '$0.00';
     document.getElementById('totalReturn').textContent = '0.00%';
@@ -858,7 +1043,7 @@ function render() {
     items += `
       <div class="list-item" onclick="openEditStock(${i})" oncontextmenu="event.preventDefault(); openPosActions(${i})">
         <div class="item-left">
-          <div class="item-ticker">${p.ticker} <span class="flag">${mkt.flag}</span></div>
+          <div class="item-ticker"><span class="flag">${mkt.flag}</span> ${p.ticker}</div>
           <div class="item-sub">${fmt(p.qty, p.qty % 1 === 0 ? 0 : 2)} shares · Cost ${csym(mkt.currency)}${fmt(p.costBasis, cd)}</div>
           <div class="item-sub">Price ${pricePerShare}</div>
         </div>
@@ -876,7 +1061,7 @@ function render() {
   const sign = totalPnl >= 0 ? '+' : '';
   const cls = totalPnl >= 0 ? 'positive' : 'negative';
 
-  document.getElementById('totalValue').textContent = fmtUSD(totalValue + cashBalance);
+  document.getElementById('totalValue').textContent = fmtUSD(totalValue + totalCashInUSD);
   document.getElementById('totalCost').textContent = fmtUSD(totalCost);
   document.getElementById('totalPnl').innerHTML = `<span class="${cls}">${sign}${fmtUSD(totalPnl)}</span>`;
   document.getElementById('totalReturn').innerHTML = `<span class="${cls}">${sign}${fmt(totalPnlPct)}%</span>`;
@@ -896,6 +1081,24 @@ function showToast(msg) {
   t._timer = setTimeout(() => t.classList.remove('show'), 2000);
 }
 
+
+// Default portfolio — loaded on first run only
+if (positions.length === 0 && !localStorage.getItem('portfolio_initialized')) {
+  positions = [
+    { market: 'US', ticker: 'AMD',  costBasis: 356,   qty: 13.5,  price: null, rate: 1 },
+    { market: 'US', ticker: 'AMZN', costBasis: 244,   qty: 38,    price: null, rate: 1 },
+    { market: 'US', ticker: 'F',    costBasis: 16.7,  qty: 400,   price: null, rate: 1 },
+    { market: 'US', ticker: 'NOK',  costBasis: 8.8,   qty: 1150,  price: null, rate: 1 },
+    { market: 'US', ticker: 'WOLF', costBasis: 40.5,  qty: 124,   price: null, rate: 1 },
+    { market: 'US', ticker: 'ZS',   costBasis: 176,   qty: 35,    price: null, rate: 1 },
+    { market: 'JP', ticker: '6526', costBasis: 2684,  qty: 780,   price: null, rate: 1 },
+    { market: 'JP', ticker: '9984', costBasis: 7943,  qty: 200,   price: null, rate: 1 },
+  ];
+  cashBalances = { USD: 0, JPY: 0 };
+  save();
+  saveCashBalances();
+  localStorage.setItem('portfolio_initialized', '1');
+}
 
 // Service worker registration
 if ('serviceWorker' in navigator) {
