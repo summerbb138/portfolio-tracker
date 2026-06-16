@@ -83,11 +83,35 @@ body {
 .cash-label { font-size: 15px; color: var(--text2); font-weight: 500; }
 .cash-value { font-size: 17px; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--teal); }
 
-/* Section header */
+/* Tab switcher */
+.tab-bar {
+  display: flex; margin: 10px 16px 0;
+  background: rgba(120,120,128,0.2); border-radius: 10px; padding: 2px;
+}
+.tab-bar .tab {
+  flex: 1; text-align: center; padding: 7px 0;
+  font-size: 13px; font-weight: 600; border-radius: 8px;
+  color: rgba(235,235,245,0.5); cursor: pointer; transition: all 0.2s;
+  border: none; background: none; font-family: inherit;
+}
+.tab-bar .tab.active {
+  background: rgba(120,120,128,0.4); color: #fff;
+}
+
+/* Section header with sort */
 .section-header {
   padding: 16px 20px 6px; font-size: 13px; color: var(--text3);
   text-transform: uppercase; letter-spacing: 0.5px; font-weight: 500;
+  display: flex; justify-content: space-between; align-items: center;
 }
+.sort-btn {
+  display: flex; align-items: center; gap: 4px;
+  font-size: 12px; color: var(--blue); font-weight: 500;
+  cursor: pointer; background: none; border: none;
+  padding: 4px 8px; border-radius: 6px; font-family: inherit;
+  text-transform: none; letter-spacing: 0;
+}
+.sort-btn:active { background: rgba(10,132,255,0.12); }
 
 /* iOS grouped list */
 .list-group { margin: 0 16px; background: var(--group-bg); border-radius: 12px; overflow: hidden; }
@@ -101,7 +125,11 @@ body {
 .item-left { flex: 1; min-width: 0; }
 .item-ticker { font-size: 17px; font-weight: 600; display: flex; align-items: center; gap: 6px; }
 .item-ticker .flag { font-size: 14px; }
-.item-sub { font-size: 14px; color: var(--text3); margin-top: 2px; }
+.item-sub { font-size: 13px; color: var(--text3); margin-top: 2px; }
+.detail-rows { display: flex; flex-direction: column; gap: 2px; margin-top: 4px; }
+.detail-row { display: flex; align-items: center; gap: 6px; font-size: 13px; font-variant-numeric: tabular-nums; }
+.detail-label { color: rgba(235,235,245,0.45); width: 44px; flex-shrink: 0; font-weight: 500; }
+.detail-value { color: rgba(235,235,245,0.85); font-weight: 500; }
 .item-right { text-align: right; flex-shrink: 0; padding-left: 12px; }
 .item-value { font-size: 17px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .item-change { font-size: 14px; font-weight: 500; margin-top: 2px; font-variant-numeric: tabular-nums; }
@@ -280,8 +308,17 @@ body {
   <div class="updated" id="lastUpdated"></div>
 </div>
 
+<!-- Tab Switcher -->
+<div class="tab-bar" id="tabBar" style="display:none">
+  <button class="tab active" onclick="switchTab('cost')">From cost</button>
+  <button class="tab" onclick="switchTab('today')">Today</button>
+</div>
+
 <!-- Positions -->
-<div class="section-header" id="positionsHeader" style="display:none">HOLDINGS</div>
+<div class="section-header" id="positionsHeader" style="display:none">
+  <span>HOLDINGS</span>
+  <button class="sort-btn" id="sortBtn" onclick="cycleSort()">Ticker <span id="sortArrow">A↓Z</span></button>
+</div>
 <div id="positionsList"></div>
 
 <!-- Empty state -->
@@ -497,6 +534,18 @@ if (Object.keys(cashBalances).length === 0) {
   if (oldCash > 0) cashBalances.USD = oldCash;
 }
 let editIndex = -1;
+let activeTab = 'cost';
+const SORT_MODES = [
+  { key: 'ticker-asc', label: 'Ticker', arrow: 'A↓Z' },
+  { key: 'ticker-desc', label: 'Ticker', arrow: 'Z↓A' },
+  { key: 'value-desc', label: 'Value', arrow: '▼' },
+  { key: 'value-asc', label: 'Value', arrow: '▲' },
+  { key: 'pnl-desc', label: 'P&L', arrow: '▼' },
+  { key: 'pnl-asc', label: 'P&L', arrow: '▲' },
+  { key: 'daily-desc', label: 'Daily %', arrow: '▼' },
+  { key: 'daily-asc', label: 'Daily %', arrow: '▲' },
+];
+let sortIndex = 0;
 let actionIndex = -1;
 let selectedMarket = 'US';
 
@@ -865,6 +914,54 @@ function moveDown() {
 
 function openMoreActions() { openSheet('actionsSheet'); }
 
+function switchTab(tab) {
+  activeTab = tab;
+  document.querySelectorAll('.tab-bar .tab').forEach(t => t.classList.remove('active'));
+  document.querySelector(`.tab-bar .tab[onclick="switchTab('${tab}')"]`).classList.add('active');
+  render();
+}
+
+function cycleSort() {
+  sortIndex = (sortIndex + 1) % SORT_MODES.length;
+  document.getElementById('sortBtn').innerHTML = SORT_MODES[sortIndex].label + ' <span id="sortArrow">' + SORT_MODES[sortIndex].arrow + '</span>';
+  render();
+}
+
+function getSortedIndices() {
+  const indices = positions.map((_, i) => i);
+  const mode = SORT_MODES[sortIndex].key;
+  indices.sort((a, b) => {
+    const pa = positions[a], pb = positions[b];
+    const mktA = MARKET_MAP[pa.market], mktB = MARKET_MAP[pb.market];
+    const rateA = mktA.currency === 'USD' ? 1 : (exchangeRates[mktA.currency] || pa.rate || 1);
+    const rateB = mktB.currency === 'USD' ? 1 : (exchangeRates[mktB.currency] || pb.rate || 1);
+    const valA = pa.price != null ? (pa.price / rateA) * pa.qty : 0;
+    const valB = pb.price != null ? (pb.price / rateB) * pb.qty : 0;
+    const costA = (pa.costBasis / rateA) * pa.qty;
+    const costB = (pb.costBasis / rateB) * pb.qty;
+    switch (mode) {
+      case 'ticker-asc': return pa.ticker.localeCompare(pb.ticker);
+      case 'ticker-desc': return pb.ticker.localeCompare(pa.ticker);
+      case 'value-desc': return valB - valA;
+      case 'value-asc': return valA - valB;
+      case 'pnl-desc': return (valB - costB) - (valA - costA);
+      case 'pnl-asc': return (valA - costA) - (valB - costB);
+      case 'daily-desc': {
+        const dA = pa.previousClose ? ((pa.price || 0) - pa.previousClose) / pa.previousClose : -Infinity;
+        const dB = pb.previousClose ? ((pb.price || 0) - pb.previousClose) / pb.previousClose : -Infinity;
+        return dB - dA;
+      }
+      case 'daily-asc': {
+        const dA = pa.previousClose ? ((pa.price || 0) - pa.previousClose) / pa.previousClose : Infinity;
+        const dB = pb.previousClose ? ((pb.price || 0) - pb.previousClose) / pb.previousClose : Infinity;
+        return dA - dB;
+      }
+      default: return 0;
+    }
+  });
+  return indices;
+}
+
 // API
 const CORS_PROXY = 'https://corsproxy.io/?';
 const isLocalServer = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
@@ -906,7 +1003,7 @@ async function fetchPrice(index) {
     if (isLocalServer) {
       try {
         const r = await fetchJSON(`/api/quote/${encodeURIComponent(symbol)}`, 5000);
-        if (r.price) { p.price = r.price; save(); render(); return p.price !== oldPrice; }
+        if (r.price) { p.price = r.price; if (r.previousClose != null) p.previousClose = r.previousClose; save(); render(); return p.price !== oldPrice; }
       } catch(e) {}
     }
     const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=1d`;
@@ -914,6 +1011,8 @@ async function fetchPrice(index) {
     const meta = data?.chart?.result?.[0]?.meta;
     if (meta?.regularMarketPrice) {
       p.price = meta.regularMarketPrice;
+      if (meta.chartPreviousClose != null) p.previousClose = meta.chartPreviousClose;
+      else if (meta.previousClose != null) p.previousClose = meta.previousClose;
       save();
       render();
       return p.price !== oldPrice;
@@ -1007,10 +1106,13 @@ function render() {
     </div>`;
   }).join('');
 
+  const tabBar = document.getElementById('tabBar');
+
   if (positions.length === 0) {
     list.innerHTML = '';
     empty.style.display = 'block';
     header.style.display = 'none';
+    tabBar.style.display = 'none';
     document.getElementById('totalValue').textContent = fmtUSD(totalCashInUSD);
     document.getElementById('totalCost').textContent = '$0.00';
     document.getElementById('totalPnl').textContent = '$0.00';
@@ -1020,55 +1122,102 @@ function render() {
   }
 
   empty.style.display = 'none';
-  header.style.display = 'block';
+  header.style.display = 'flex';
+  tabBar.style.display = 'flex';
 
-  let totalValue = 0, totalCost = 0;
+  let totalValue = 0, totalCost = 0, totalDailyChange = 0;
+  const sorted = getSortedIndices();
   let items = '';
 
-  positions.forEach((p, i) => {
+  // First pass: compute totals
+  positions.forEach(p => {
     const mkt = MARKET_MAP[p.market];
     const cur = mkt.currency;
     const rate = cur === 'USD' ? 1 : (exchangeRates[cur] || p.rate || 1);
     const costUSD = (p.costBasis / rate) * p.qty;
     const valueUSD = p.price != null ? (p.price / rate) * p.qty : null;
-    const pnl = valueUSD != null ? valueUSD - costUSD : null;
-    const pnlPct = costUSD > 0 && pnl != null ? (pnl / costUSD) * 100 : null;
-
     totalCost += costUSD;
     if (valueUSD != null) totalValue += valueUSD;
+    if (p.price != null && p.previousClose != null) {
+      totalDailyChange += ((p.price - p.previousClose) / rate) * p.qty;
+    }
+  });
 
-    const cls = pnl != null ? (pnl >= 0 ? 'positive' : 'negative') : '';
-    const sign = pnl != null && pnl >= 0 ? '+' : '';
+  // Second pass: render sorted items
+  sorted.forEach(i => {
+    const p = positions[i];
+    const mkt = MARKET_MAP[p.market];
+    const cur = mkt.currency;
+    const rate = cur === 'USD' ? 1 : (exchangeRates[cur] || p.rate || 1);
+    const costUSD = (p.costBasis / rate) * p.qty;
+    const valueUSD = p.price != null ? (p.price / rate) * p.qty : null;
     const isJPY = mkt.currency === 'JPY';
     const cd = isJPY ? 0 : 2;
-
     const pricePerShare = p.price != null ? csym(mkt.currency) + fmt(p.price, cd) : '—';
+
+    let changeHtml = '';
+    if (activeTab === 'cost') {
+      const pnl = valueUSD != null ? valueUSD - costUSD : null;
+      const pnlPct = costUSD > 0 && pnl != null ? (pnl / costUSD) * 100 : null;
+      const cls = pnl != null ? (pnl >= 0 ? 'positive' : 'negative') : '';
+      const sign = pnl != null && pnl >= 0 ? '+' : '';
+      changeHtml = pnl != null ? `<div class="item-change ${cls}">${sign}${fmtUSD(pnl)}</div><div class="item-change ${cls}" style="font-size:12px">(${sign}${fmt(pnlPct)}%)</div>` : '';
+    } else {
+      const dailyChg = (p.price != null && p.previousClose != null) ? ((p.price - p.previousClose) / rate) * p.qty : null;
+      const dailyPct = (p.price != null && p.previousClose != null && p.previousClose > 0) ? ((p.price - p.previousClose) / p.previousClose) * 100 : null;
+      const cls = dailyChg != null ? (dailyChg >= 0 ? 'positive' : 'negative') : '';
+      const sign = dailyChg != null && dailyChg >= 0 ? '+' : '';
+      changeHtml = dailyChg != null ? `<div class="item-change ${cls}">${sign}${fmtUSD(dailyChg)}</div><div class="item-change ${cls}" style="font-size:12px">(${sign}${fmt(dailyPct)}%)</div>` : '<div class="item-change" style="color:var(--text3)">—</div>';
+    }
 
     items += `
       <div class="list-item" onclick="openEditStock(${i})" oncontextmenu="event.preventDefault(); openPosActions(${i})">
         <div class="item-left">
           <div class="item-ticker"><span class="flag">${mkt.flag}</span> ${p.ticker}</div>
-          <div class="item-sub">${fmt(p.qty, p.qty % 1 === 0 ? 0 : 2)} shares · Cost ${csym(mkt.currency)}${fmt(p.costBasis, cd)}</div>
-          <div class="item-sub">Price ${pricePerShare}</div>
+          <div class="detail-rows">
+            <div class="detail-row"><span class="detail-label">Shares</span><span class="detail-value">${fmt(p.qty, p.qty % 1 === 0 ? 0 : 2)}</span></div>
+            <div class="detail-row"><span class="detail-label">Cost</span><span class="detail-value">${csym(mkt.currency)}${fmt(p.costBasis, cd)}</span></div>
+            <div class="detail-row"><span class="detail-label">Price</span><span class="detail-value">${pricePerShare}</span></div>
+          </div>
         </div>
         <div class="item-right">
           <div class="item-value">${valueUSD != null ? fmtUSD(valueUSD) : '<span class="shimmer">loading</span>'}</div>
-          <div class="item-change ${cls}">${pnl != null ? sign + fmtUSD(pnl) + ' (' + sign + fmt(pnlPct) + '%)' : ''}</div>
+          ${changeHtml}
         </div>
       </div>`;
   });
 
   list.innerHTML = `<div class="list-group">${items}</div>`;
 
+  // Summary card adapts to active tab
   const totalPnl = totalValue - totalCost;
   const totalPnlPct = totalCost > 0 ? (totalPnl / totalCost) * 100 : 0;
-  const sign = totalPnl >= 0 ? '+' : '';
-  const cls = totalPnl >= 0 ? 'positive' : 'negative';
 
   document.getElementById('totalValue').textContent = fmtUSD(totalValue + totalCashInUSD);
-  document.getElementById('totalCost').textContent = fmtUSD(totalCost);
-  document.getElementById('totalPnl').innerHTML = `<span class="${cls}">${sign}${fmtUSD(totalPnl)}</span>`;
-  document.getElementById('totalReturn').innerHTML = `<span class="${cls}">${sign}${fmt(totalPnlPct)}%</span>`;
+
+  if (activeTab === 'cost') {
+    const sign = totalPnl >= 0 ? '+' : '';
+    const cls = totalPnl >= 0 ? 'positive' : 'negative';
+    document.getElementById('totalCost').textContent = fmtUSD(totalCost);
+    document.getElementById('totalPnl').innerHTML = `<span class="${cls}">${sign}${fmtUSD(totalPnl)}</span>`;
+    document.getElementById('totalReturn').innerHTML = `<span class="${cls}">${sign}${fmt(totalPnlPct)}%</span>`;
+    document.querySelector('#summary .summary-grid').children[0].querySelector('.label').textContent = 'Cost';
+    document.querySelector('#summary .summary-grid').children[1].querySelector('.label').textContent = 'P&L';
+    document.querySelector('#summary .summary-grid').children[2].querySelector('.label').textContent = 'Return';
+  } else {
+    const prevTotalValue = totalValue - totalDailyChange;
+    const dailyPct = prevTotalValue > 0 ? (totalDailyChange / prevTotalValue) * 100 : 0;
+    const sign = totalDailyChange >= 0 ? '+' : '';
+    const cls = totalDailyChange >= 0 ? 'positive' : 'negative';
+    const retSign = totalPnl >= 0 ? '+' : '';
+    const retCls = totalPnl >= 0 ? 'positive' : 'negative';
+    document.getElementById('totalCost').innerHTML = `<span class="${cls}">${sign}${fmtUSD(totalDailyChange)}</span>`;
+    document.getElementById('totalPnl').innerHTML = `<span class="${cls}">${sign}${fmt(dailyPct)}%</span>`;
+    document.getElementById('totalReturn').innerHTML = `<span class="${retCls}">${retSign}${fmt(totalPnlPct)}%</span>`;
+    document.querySelector('#summary .summary-grid').children[0].querySelector('.label').textContent = 'Today';
+    document.querySelector('#summary .summary-grid').children[1].querySelector('.label').textContent = 'Change';
+    document.querySelector('#summary .summary-grid').children[2].querySelector('.label').textContent = 'Return';
+  }
 
   const lastUpdate = localStorage.getItem('portfolio_last_updated');
   if (lastUpdate) {
