@@ -392,7 +392,7 @@ body {
   <div class="sheet" onclick="event.stopPropagation()">
     <div class="sheet-handle"></div>
     <div class="action-sheet">
-      <div style="text-align:center;padding:8px 0 4px;font-size:13px;color:var(--text3)">Portfolio Tracker v1.3 (build 10)</div>
+      <div style="text-align:center;padding:8px 0 4px;font-size:13px;color:var(--text3)">Portfolio Tracker v1.3 (build 11)</div>
       <div class="action-group">
         <button class="action-item" onclick="closeSheet('actionsSheet'); refreshAll()">↻ &nbsp;Refresh All Prices</button>
         <button class="action-item" onclick="closeSheet('actionsSheet'); setTimeout(openCashSheet, 200)">💵 &nbsp;Set Cash Balance</button>
@@ -1322,24 +1322,6 @@ function showToast(msg) {
   t._timer = setTimeout(() => t.classList.remove('show'), 2000);
 }
 
-
-// Default portfolio — loaded on first run only
-if (positions.length === 0 && !localStorage.getItem('portfolio_initialized')) {
-  positions = [
-    { market: 'US', ticker: 'AMD',  costBasis: 356,   qty: 13.5,  price: null, rate: 1 },
-    { market: 'US', ticker: 'AMZN', costBasis: 244,   qty: 38,    price: null, rate: 1 },
-    { market: 'US', ticker: 'F',    costBasis: 16.7,  qty: 400,   price: null, rate: 1 },
-    { market: 'US', ticker: 'NOK',  costBasis: 8.8,   qty: 1150,  price: null, rate: 1 },
-    { market: 'US', ticker: 'WOLF', costBasis: 40.5,  qty: 124,   price: null, rate: 1 },
-    { market: 'US', ticker: 'ZS',   costBasis: 176,   qty: 35,    price: null, rate: 1 },
-    { market: 'JP', ticker: '6526', costBasis: 2684,  qty: 780,   price: null, rate: 1 },
-    { market: 'JP', ticker: '9984', costBasis: 7943,  qty: 200,   price: null, rate: 1 },
-  ];
-  cashBalances = { USD: 0, JPY: 0 };
-  save();
-  saveCashBalances();
-  localStorage.setItem('portfolio_initialized', '1');
-}
 
 // Service worker registration
 if ('serviceWorker' in navigator) {
