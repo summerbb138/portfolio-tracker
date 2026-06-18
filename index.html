@@ -392,7 +392,7 @@ body {
   <div class="sheet" onclick="event.stopPropagation()">
     <div class="sheet-handle"></div>
     <div class="action-sheet">
-      <div style="text-align:center;padding:8px 0 4px;font-size:13px;color:var(--text3)">Portfolio Tracker v1.3 (build 13)</div>
+      <div style="text-align:center;padding:8px 0 4px;font-size:13px;color:var(--text3)">Portfolio Tracker v1.3 (build 14)</div>
       <div class="action-group">
         <button class="action-item" onclick="closeSheet('actionsSheet'); refreshAll()">↻ &nbsp;Refresh All Prices</button>
         <button class="action-item" onclick="closeSheet('actionsSheet'); setTimeout(openCashSheet, 200)">💵 &nbsp;Set Cash Balance</button>
@@ -1167,9 +1167,10 @@ function handleImport(e) {
 }
 
 function clearAll() {
-  if (positions.length === 0) { showToast('Nothing to clear'); return; }
-  positions = []; save(); render();
-  showToast('All holdings cleared');
+  if (positions.length === 0 && Object.values(cashBalances).every(v => !v)) { showToast('Nothing to clear'); return; }
+  positions = []; cashBalances = {};
+  save(); saveCashBalances(); render();
+  showToast('All holdings and cash cleared');
 }
 
 // Formatting
