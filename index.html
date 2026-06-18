@@ -392,7 +392,7 @@ body {
   <div class="sheet" onclick="event.stopPropagation()">
     <div class="sheet-handle"></div>
     <div class="action-sheet">
-      <div style="text-align:center;padding:8px 0 4px;font-size:13px;color:var(--text3)">Portfolio Tracker v1.3 (build 12)</div>
+      <div style="text-align:center;padding:8px 0 4px;font-size:13px;color:var(--text3)">Portfolio Tracker v1.3 (build 13)</div>
       <div class="action-group">
         <button class="action-item" onclick="closeSheet('actionsSheet'); refreshAll()">↻ &nbsp;Refresh All Prices</button>
         <button class="action-item" onclick="closeSheet('actionsSheet'); setTimeout(openCashSheet, 200)">💵 &nbsp;Set Cash Balance</button>
@@ -1123,7 +1123,9 @@ function exportData() {
   const a = document.createElement('a');
   a.href = url; a.download = 'portfolio-backup.json'; a.click();
   URL.revokeObjectURL(url);
-  showToast('Portfolio exported');
+  const cashCount = Object.values(cashBalances).filter(v => v > 0).length;
+  const cashMsg = cashCount > 0 ? ` + ${cashCount} cash` : '';
+  showToast(`Exported ${positions.length} positions${cashMsg}`);
 }
 
 async function restoreLastExport() {
@@ -1132,8 +1134,10 @@ async function restoreLastExport() {
   const age = backup.exportedAt ? new Date(backup.exportedAt).toLocaleString() : 'unknown';
   positions = backup.positions;
   cashBalances = backup.cashBalances || {};
-  save(); saveCashBalances(); render(); refreshAll();
-  showToast(`Restored from backup (${age})`);
+  saveCashBalances(); save(); render(); refreshAll();
+  const cashCount = Object.values(cashBalances).filter(v => v > 0).length;
+  const cashMsg = cashCount > 0 ? ` + ${cashCount} cash` : '';
+  showToast(`Restored ${positions.length} positions${cashMsg} (${age})`);
 }
 
 function importData() { document.getElementById('fileInput').click(); }
@@ -1147,10 +1151,14 @@ function handleImport(e) {
       const data = JSON.parse(ev.target.result);
       if (data.positions && Array.isArray(data.positions)) {
         positions = data.positions;
-        if (data.cashBalances) { cashBalances = data.cashBalances; saveCashBalances(); }
-        else if (data.cashBalance != null) { cashBalances = { USD: data.cashBalance }; saveCashBalances(); }
+        if (data.cashBalances) cashBalances = data.cashBalances;
+        else if (data.cashBalance != null) cashBalances = { USD: data.cashBalance };
+        else cashBalances = {};
+        saveCashBalances();
         save(); render(); refreshAll();
-        showToast(`Imported ${positions.length} positions`);
+        const cashCount = Object.values(cashBalances).filter(v => v > 0).length;
+        const cashMsg = cashCount > 0 ? ` + ${cashCount} cash position${cashCount > 1 ? 's' : ''}` : '';
+        showToast(`Imported ${positions.length} positions${cashMsg}`);
       }
     } catch(err) { showToast('Invalid file format'); }
   };
