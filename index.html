@@ -95,7 +95,7 @@ body {
 }
 .tab-bar .tab { transition: none; }
 .tab-bar .tab.active {
-  box-shadow: inset 0 0 0 1.5px rgba(255,255,255,0.3);
+  background: #004494;
 }
 
 /* Section header with sort */
@@ -464,7 +464,7 @@ body {
   <div class="sheet" onclick="event.stopPropagation()">
     <div class="sheet-handle"></div>
     <div class="action-sheet">
-      <div style="text-align:center;padding:8px 0 4px;font-size:14px;color:var(--text3)">Portfolio Tracker v1.4 (build 7)</div>
+      <div style="text-align:center;padding:8px 0 4px;font-size:14px;color:var(--text3)">Portfolio Tracker v1.4 (build 8)</div>
       <div class="action-group">
         <button class="action-item" onclick="closeSheet('actionsSheet'); refreshAll()">↻ &nbsp;Refresh All Prices</button>
         <button class="action-item" onclick="closeSheet('actionsSheet'); setTimeout(openCashSheet, 200)">💵 &nbsp;Set Cash Balance</button>
