@@ -11,7 +11,7 @@
 <title>Portfolio</title>
 <style>
 :root {
-  --bg: #000000;
+  --bg: #2c2c2e;
   --card: #1c1c1e;
   --card-hover: #2c2c2e;
   --group-bg: #1c1c1e;
@@ -90,7 +90,7 @@ body {
 /* Tab switcher */
 .tab-bar {
   display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
-  margin: 10px 16px 0;
+  margin: 10px 12px 0;
 }
 .tab-bar .tab {
   padding: 12px 8px; text-align: center;
@@ -363,7 +363,7 @@ body {
 
 <!-- Tab Switcher -->
 <div class="tab-bar" id="tabBar" style="display:none">
-  <button class="tab active" onclick="switchTab('cost')">From cost</button>
+  <button class="tab active" onclick="switchTab('cost')">From Cost</button>
   <button class="tab" onclick="switchTab('today')">Today</button>
   <button class="tab" onclick="switchTab('history')">History</button>
 </div>
@@ -469,7 +469,7 @@ body {
   <div class="sheet" onclick="event.stopPropagation()">
     <div class="sheet-handle"></div>
     <div class="action-sheet">
-      <div style="text-align:center;padding:8px 0 4px;font-size:14px;color:var(--text3)">Portfolio Tracker v1.4 (build 2)</div>
+      <div style="text-align:center;padding:8px 0 4px;font-size:14px;color:var(--text3)">Portfolio Tracker v1.4 (build 3)</div>
       <div class="action-group">
         <button class="action-item" onclick="closeSheet('actionsSheet'); refreshAll()">↻ &nbsp;Refresh All Prices</button>
         <button class="action-item" onclick="closeSheet('actionsSheet'); setTimeout(openCashSheet, 200)">💵 &nbsp;Set Cash Balance</button>
