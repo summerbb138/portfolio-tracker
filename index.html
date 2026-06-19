@@ -258,6 +258,55 @@ body {
 .action-item.destructive { color: var(--red); }
 .action-item:active { background: rgba(120,120,128,0.2); }
 
+/* History chart */
+.history-container {
+  margin: 12px 16px; display: none;
+}
+.history-container.active { display: block; }
+.chart-wrapper {
+  background: var(--card); border-radius: 16px; padding: 16px;
+  overflow: hidden;
+}
+.chart-header {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 12px;
+}
+.chart-title { font-size: 15px; font-weight: 600; color: var(--text2); }
+.chart-subtitle { font-size: 13px; color: var(--text3); }
+.chart-canvas-wrap {
+  overflow-x: auto; -webkit-overflow-scrolling: touch;
+  margin: 0 -4px; padding: 0 4px;
+}
+.chart-canvas-wrap::-webkit-scrollbar { display: none; }
+.chart-empty {
+  text-align: center; padding: 40px 20px; color: var(--text3); font-size: 15px; line-height: 1.5;
+}
+.history-actions {
+  margin-top: 12px; display: flex; gap: 8px;
+}
+.history-btn {
+  flex: 1; padding: 12px; border: none; border-radius: 12px;
+  font-size: 14px; font-weight: 600; cursor: pointer;
+  font-family: inherit; transition: opacity 0.15s;
+}
+.history-btn:active { opacity: 0.7; }
+.history-btn.fill { background: rgba(10,132,255,0.15); color: var(--blue); }
+.history-btn.fill.loading { opacity: 0.5; pointer-events: none; }
+.history-btn.clear-hist { background: rgba(255,69,58,0.12); color: var(--red); }
+.fill-progress {
+  font-size: 13px; color: var(--text3); text-align: center;
+  padding: 8px 0; min-height: 20px;
+}
+.chart-range-bar {
+  display: flex; gap: 4px; margin-bottom: 12px;
+}
+.range-chip {
+  padding: 5px 12px; border-radius: 8px; font-size: 12px; font-weight: 600;
+  background: rgba(120,120,128,0.16); color: var(--text3);
+  border: none; cursor: pointer; font-family: inherit;
+}
+.range-chip.active { background: rgba(10,132,255,0.2); color: var(--blue); }
+
 /* Empty state */
 .empty { text-align: center; padding: 80px 40px; }
 .empty-icon { font-size: 56px; margin-bottom: 16px; }
@@ -316,6 +365,34 @@ body {
 <div class="tab-bar" id="tabBar" style="display:none">
   <button class="tab active" onclick="switchTab('cost')">From cost</button>
   <button class="tab" onclick="switchTab('today')">Today</button>
+  <button class="tab" onclick="switchTab('history')">History</button>
+</div>
+
+<!-- History Chart -->
+<div class="history-container" id="historyContainer">
+  <div class="chart-wrapper">
+    <div class="chart-header">
+      <div>
+        <div class="chart-title">Portfolio Value</div>
+        <div class="chart-subtitle" id="chartSubtitle">No data yet</div>
+      </div>
+    </div>
+    <div class="chart-range-bar" id="chartRangeBar">
+      <button class="range-chip" onclick="setChartRange(30)">1M</button>
+      <button class="range-chip" onclick="setChartRange(90)">3M</button>
+      <button class="range-chip active" onclick="setChartRange(365)">1Y</button>
+      <button class="range-chip" onclick="setChartRange(0)">All</button>
+    </div>
+    <div class="chart-canvas-wrap" id="chartWrap">
+      <canvas id="historyChart"></canvas>
+    </div>
+    <div id="chartTooltip" style="font-size:14px;color:var(--text2);text-align:center;padding:8px 0;min-height:24px"></div>
+  </div>
+  <div class="history-actions">
+    <button class="history-btn fill" id="fillGapsBtn" onclick="fillGaps()">📊 Fill Gaps</button>
+    <button class="history-btn clear-hist" onclick="clearHistory()">Clear History</button>
+  </div>
+  <div class="fill-progress" id="fillProgress"></div>
 </div>
 
 <!-- Positions -->
@@ -392,7 +469,7 @@ body {
   <div class="sheet" onclick="event.stopPropagation()">
     <div class="sheet-handle"></div>
     <div class="action-sheet">
-      <div style="text-align:center;padding:8px 0 4px;font-size:13px;color:var(--text3)">Portfolio Tracker v1.3 (build 14)</div>
+      <div style="text-align:center;padding:8px 0 4px;font-size:13px;color:var(--text3)">Portfolio Tracker v1.4 (build 1)</div>
       <div class="action-group">
         <button class="action-item" onclick="closeSheet('actionsSheet'); refreshAll()">↻ &nbsp;Refresh All Prices</button>
         <button class="action-item" onclick="closeSheet('actionsSheet'); setTimeout(openCashSheet, 200)">💵 &nbsp;Set Cash Balance</button>
@@ -531,6 +608,7 @@ function csym(currency) { return CURRENCY_SYMBOL[currency] || currency + ' '; }
 const STORAGE_KEY = 'portfolio_positions';
 const CASH_KEY = 'portfolio_cash';
 const CASH_MULTI_KEY = 'portfolio_cash_multi';
+const HISTORY_KEY = 'portfolio_history';
 const IDB_NAME = 'PortfolioDB';
 const IDB_STORE = 'data';
 const IDB_VERSION = 1;
@@ -592,6 +670,51 @@ async function restoreFromIDB() {
     }
   }
 }
+let history = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]');
+let chartRange = 365;
+
+function saveHistory() {
+  localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+  idbSet('portfolio_history', history);
+}
+
+function todayStr() {
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
+
+function yesterdayStr() {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
+
+function recordSnapshot() {
+  if (positions.length === 0) return;
+  const hasAnyPrice = positions.some(p => p.price != null);
+  if (!hasAnyPrice) return;
+
+  let totalValue = 0;
+  positions.forEach(p => {
+    const mkt = MARKET_MAP[p.market];
+    const cur = mkt.currency;
+    const rate = cur === 'USD' ? 1 : (exchangeRates[cur] || p.rate || 1);
+    if (p.price != null) totalValue += (p.price / rate) * p.qty;
+  });
+  totalValue += totalCashUSD();
+
+  const date = todayStr();
+  const existing = history.findIndex(h => h.date === date);
+  if (existing >= 0) {
+    history[existing].value = totalValue;
+  } else {
+    history.push({ date, value: totalValue });
+    history.sort((a, b) => a.date.localeCompare(b.date));
+    if (history.length > 365) history = history.slice(-365);
+  }
+  saveHistory();
+}
+
 let editIndex = -1;
 let activeTab = 'cost';
 const SORT_MODES = [
@@ -977,6 +1100,19 @@ function switchTab(tab) {
   activeTab = tab;
   document.querySelectorAll('.tab-bar .tab').forEach(t => t.classList.remove('active'));
   document.querySelector(`.tab-bar .tab[onclick="switchTab('${tab}')"]`).classList.add('active');
+  const histEl = document.getElementById('historyContainer');
+  const listEl = document.getElementById('positionsList');
+  const headerEl = document.getElementById('positionsHeader');
+  if (tab === 'history') {
+    histEl.classList.add('active');
+    listEl.style.display = 'none';
+    headerEl.style.display = 'none';
+    renderChart();
+  } else {
+    histEl.classList.remove('active');
+    listEl.style.display = '';
+    headerEl.style.display = positions.length ? 'flex' : 'none';
+  }
   render();
 }
 
@@ -1105,6 +1241,7 @@ async function refreshAll() {
     results.push(await fetchPrice(i).then(v => ({status:'fulfilled',value:v})).catch(e => ({status:'rejected',reason:e})));
   }
   localStorage.setItem('portfolio_last_updated', new Date().toISOString());
+  recordSnapshot();
   render();
   const updated = results.filter(r => r.status === 'fulfilled' && r.value).length;
   const failed = results.filter(r => r.status === 'rejected').length;
@@ -1219,7 +1356,8 @@ function render() {
   }
 
   empty.style.display = 'none';
-  header.style.display = 'flex';
+  header.style.display = activeTab === 'history' ? 'none' : 'flex';
+  list.style.display = activeTab === 'history' ? 'none' : '';
   tabBar.style.display = 'flex';
 
   let totalValue = 0, totalCost = 0, totalDailyChange = 0;
@@ -1331,6 +1469,319 @@ function showToast(msg) {
   t._timer = setTimeout(() => t.classList.remove('show'), 2000);
 }
 
+
+// --- History Chart ---
+
+function setChartRange(days) {
+  chartRange = days;
+  document.querySelectorAll('.range-chip').forEach(c => c.classList.remove('active'));
+  event.target.classList.add('active');
+  renderChart();
+}
+
+function getChartData() {
+  if (history.length === 0) return [];
+  let data = [...history].sort((a, b) => a.date.localeCompare(b.date));
+  if (chartRange > 0) {
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - chartRange);
+    const cutStr = cutoff.getFullYear() + '-' + String(cutoff.getMonth()+1).padStart(2,'0') + '-' + String(cutoff.getDate()).padStart(2,'0');
+    data = data.filter(d => d.date >= cutStr);
+  }
+  return data;
+}
+
+function renderChart() {
+  const canvas = document.getElementById('historyChart');
+  const ctx = canvas.getContext('2d');
+  const wrap = document.getElementById('chartWrap');
+  const data = getChartData();
+  const tooltip = document.getElementById('chartTooltip');
+  tooltip.textContent = '';
+
+  if (data.length === 0) {
+    canvas.width = 0; canvas.height = 0;
+    wrap.innerHTML = '<div class="chart-empty">No history data yet.<br>Tap Refresh to record today\'s value,<br>or use Fill Gaps to backfill missing days.</div>';
+    document.getElementById('chartSubtitle').textContent = 'No data yet';
+    return;
+  }
+
+  // Ensure canvas element exists (may have been replaced by empty message)
+  if (!wrap.querySelector('canvas')) {
+    wrap.innerHTML = '<canvas id="historyChart"></canvas>';
+  }
+  const c = wrap.querySelector('canvas');
+  const cctx = c.getContext('2d');
+
+  const dpr = window.devicePixelRatio || 1;
+  const barW = Math.max(6, Math.min(16, 300 / data.length));
+  const gap = Math.max(1, barW * 0.3);
+  const step = barW + gap;
+  const marginLeft = 50;
+  const marginRight = 16;
+  const marginTop = 20;
+  const marginBottom = 40;
+  const chartH = 200;
+  const totalW = marginLeft + data.length * step + marginRight;
+  const totalH = chartH + marginTop + marginBottom;
+
+  c.style.width = totalW + 'px';
+  c.style.height = totalH + 'px';
+  c.width = totalW * dpr;
+  c.height = totalH * dpr;
+  cctx.scale(dpr, dpr);
+
+  const values = data.map(d => d.value);
+  const minVal = Math.min(...values) * 0.95;
+  const maxVal = Math.max(...values) * 1.02;
+  const range = maxVal - minVal || 1;
+
+  // Background
+  cctx.clearRect(0, 0, totalW, totalH);
+
+  // Grid lines
+  const gridLines = 4;
+  cctx.strokeStyle = 'rgba(84,84,88,0.25)';
+  cctx.lineWidth = 0.5;
+  cctx.fillStyle = 'rgba(235,235,245,0.5)';
+  cctx.font = '10px -apple-system, sans-serif';
+  cctx.textAlign = 'right';
+  for (let i = 0; i <= gridLines; i++) {
+    const y = marginTop + (chartH / gridLines) * i;
+    const val = maxVal - (range / gridLines) * i;
+    cctx.beginPath();
+    cctx.moveTo(marginLeft, y);
+    cctx.lineTo(totalW - marginRight, y);
+    cctx.stroke();
+    const label = val >= 10000 ? '$' + (val/1000).toFixed(0) + 'k' : '$' + val.toFixed(0);
+    cctx.fillText(label, marginLeft - 6, y + 3);
+  }
+
+  // Bars
+  const firstVal = data[0].value;
+  data.forEach((d, i) => {
+    const x = marginLeft + i * step;
+    const barH = ((d.value - minVal) / range) * chartH;
+    const y = marginTop + chartH - barH;
+    const color = d.value >= firstVal ? '#30d158' : '#ff453a';
+    cctx.fillStyle = color;
+    cctx.beginPath();
+    const r = Math.min(2, barW / 4);
+    cctx.roundRect(x, y, barW, barH, [r, r, 0, 0]);
+    cctx.fill();
+  });
+
+  // Date labels on x-axis
+  cctx.fillStyle = 'rgba(235,235,245,0.5)';
+  cctx.font = '9px -apple-system, sans-serif';
+  cctx.textAlign = 'center';
+  const labelInterval = Math.max(1, Math.floor(data.length / 8));
+  data.forEach((d, i) => {
+    if (i % labelInterval === 0 || i === data.length - 1) {
+      const x = marginLeft + i * step + barW / 2;
+      const parts = d.date.split('-');
+      const label = parseInt(parts[1]) + '/' + parseInt(parts[2]);
+      cctx.fillText(label, x, marginTop + chartH + 14);
+    }
+  });
+
+  // Subtitle
+  const earliest = data[0].date;
+  const latest = data[data.length - 1].date;
+  const change = data[data.length-1].value - data[0].value;
+  const changePct = data[0].value > 0 ? (change / data[0].value * 100) : 0;
+  const sign = change >= 0 ? '+' : '';
+  document.getElementById('chartSubtitle').textContent =
+    `${data.length} days · ${sign}${fmtUSD(change)} (${sign}${fmt(changePct)}%)`;
+
+  // Touch/click to show tooltip
+  c.onclick = function(e) {
+    const rect = c.getBoundingClientRect();
+    const x = (e.clientX - rect.left);
+    const idx = Math.floor((x - marginLeft) / step);
+    if (idx >= 0 && idx < data.length) {
+      const d = data[idx];
+      const dateObj = new Date(d.date + 'T12:00:00');
+      const dateStr = dateObj.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+      const dayChange = idx > 0 ? d.value - data[idx-1].value : 0;
+      const daySign = dayChange >= 0 ? '+' : '';
+      tooltip.innerHTML = `<b>${dateStr}</b> — ${fmtUSD(d.value)}` +
+        (idx > 0 ? ` <span style="color:${dayChange>=0?'var(--green)':'var(--red)'}">(${daySign}${fmtUSD(dayChange)})</span>` : '');
+    }
+  };
+
+  // Scroll to the right to show most recent
+  wrap.scrollLeft = wrap.scrollWidth;
+}
+
+function clearHistory() {
+  if (history.length === 0) { showToast('No history to clear'); return; }
+  history = [];
+  saveHistory();
+  renderChart();
+  showToast('History cleared');
+}
+
+// --- Backfill Gaps ---
+
+async function fillGaps() {
+  if (positions.length === 0) { showToast('Add positions first'); return; }
+
+  const btn = document.getElementById('fillGapsBtn');
+  const prog = document.getElementById('fillProgress');
+  btn.classList.add('loading');
+  btn.textContent = '⏳ Working...';
+  prog.textContent = 'Calculating missing dates...';
+
+  try {
+    if (history.length === 0) {
+      showToast('Refresh first to record today\'s value');
+      btn.classList.remove('loading'); btn.textContent = '📊 Fill Gaps'; prog.textContent = '';
+      return;
+    }
+
+    const yest = yesterdayStr();
+    const sortedHistory = [...history].sort((a, b) => a.date.localeCompare(b.date));
+    const lastDate = sortedHistory[sortedHistory.length - 1].date;
+
+    if (lastDate >= yest) {
+      showToast('No gaps to fill');
+      btn.classList.remove('loading'); btn.textContent = '📊 Fill Gaps'; prog.textContent = '';
+      return;
+    }
+
+    // Fill weekdays between lastDate+1 and yesterday
+    const startDate = new Date(lastDate + 'T12:00:00');
+    startDate.setDate(startDate.getDate() + 1);
+    const endDate = new Date(yest + 'T12:00:00');
+
+    const missing = [];
+    const d = new Date(startDate);
+    while (d <= endDate) {
+      const day = d.getDay();
+      if (day !== 0 && day !== 6) {
+        const ds = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+        missing.push(ds);
+      }
+      d.setDate(d.getDate() + 1);
+    }
+
+    if (missing.length === 0) {
+      showToast('No gaps to fill (weekend only)');
+      btn.classList.remove('loading'); btn.textContent = '📊 Fill Gaps'; prog.textContent = '';
+      return;
+    }
+
+    prog.textContent = `${missing.length} days to fill. Fetching historical prices...`;
+
+    // Determine period needed for Yahoo
+    const daySpan = Math.ceil((endDate - startDate) / (1000*60*60*24));
+    let yahooRange = '1y';
+    if (daySpan <= 32) yahooRange = '1mo';
+    else if (daySpan <= 95) yahooRange = '3mo';
+    else if (daySpan <= 185) yahooRange = '6mo';
+
+    // Fetch historical prices for each position
+    const priceHistories = {};
+    for (let i = 0; i < positions.length; i++) {
+      const p = positions[i];
+      const mkt = MARKET_MAP[p.market];
+      const symbol = p.ticker + mkt.suffix;
+      prog.textContent = `Fetching ${p.ticker} (${i+1}/${positions.length})...`;
+
+      try {
+        const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=${yahooRange}&_t=${Date.now()}`;
+        let data;
+        if (isLocalServer) {
+          try { data = await fetchJSON(`/api/history/${encodeURIComponent(symbol)}?range=${yahooRange}`, 8000); } catch(e) {}
+        }
+        if (!data) data = await fetchViaProxy(yahooUrl, 15000);
+
+        const result = data?.chart?.result?.[0];
+        if (result && result.timestamp && result.indicators?.quote?.[0]?.close) {
+          const timestamps = result.timestamp;
+          const closes = result.indicators.quote[0].close;
+          const byDate = {};
+          timestamps.forEach((ts, j) => {
+            const dt = new Date(ts * 1000);
+            const ds = dt.getFullYear() + '-' + String(dt.getMonth()+1).padStart(2,'0') + '-' + String(dt.getDate()).padStart(2,'0');
+            if (closes[j] != null) byDate[ds] = closes[j];
+          });
+          priceHistories[i] = byDate;
+        }
+      } catch(e) {
+        console.warn(`Historical fetch failed for ${symbol}:`, e);
+      }
+
+      // Small delay to avoid rate limiting
+      if (i < positions.length - 1) await new Promise(r => setTimeout(r, 300));
+    }
+
+    // Use current exchange rates for all backfill (historical FX not freely available)
+    const rates = { ...exchangeRates };
+
+    // Calculate portfolio value for each missing date
+    prog.textContent = 'Computing portfolio values...';
+    let filled = 0;
+
+    for (const dateStr of missing) {
+      let totalValue = 0;
+      let hasData = false;
+
+      positions.forEach((p, i) => {
+        const mkt = MARKET_MAP[p.market];
+        const cur = mkt.currency;
+        const rate = cur === 'USD' ? 1 : (rates[cur] || p.rate || 1);
+        const priceMap = priceHistories[i];
+
+        // Find closest available price on or before this date
+        let price = null;
+        if (priceMap) {
+          if (priceMap[dateStr]) {
+            price = priceMap[dateStr];
+          } else {
+            // Find closest available price on or before this date
+            const dates = Object.keys(priceMap).sort();
+            const before = dates.filter(d => d <= dateStr);
+            if (before.length > 0) price = priceMap[before[before.length - 1]];
+            else if (dates.length > 0) price = priceMap[dates[0]];
+          }
+        }
+
+        if (price != null) {
+          totalValue += (price / rate) * p.qty;
+          hasData = true;
+        } else if (p.price != null) {
+          totalValue += (p.price / (cur === 'USD' ? 1 : (rates[cur] || p.rate || 1))) * p.qty;
+          hasData = true;
+        }
+      });
+
+      // Add cash (assumes cash was same throughout — noted limitation)
+      totalValue += totalCashUSD();
+
+      if (hasData) {
+        history.push({ date: dateStr, value: totalValue });
+        filled++;
+      }
+    }
+
+    history.sort((a, b) => a.date.localeCompare(b.date));
+    if (history.length > 365) history = history.slice(-365);
+    saveHistory();
+    renderChart();
+    showToast(`Filled ${filled} days of history`);
+    prog.textContent = `Done — ${filled} days added`;
+
+  } catch(e) {
+    console.error('Fill gaps error:', e);
+    showToast('Fill gaps failed');
+    prog.textContent = 'Error: ' + e.message;
+  } finally {
+    btn.classList.remove('loading');
+    btn.textContent = '📊 Fill Gaps';
+  }
+}
 
 // Service worker registration
 if ('serviceWorker' in navigator) {
