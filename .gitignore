@@ -1,0 +1,15 @@
+# User data — MUST stay out of git (never pushed to the public/remote repo)
+# Repo is PUBLIC — real portfolio data must never be committed. Patterns are
+# broad on purpose so renamed/backup copies can't slip through.
+my-portfolio.json
+my-portfolio*.json
+*REAL-BACKUP*.json
+*portfolio*backup*.json
+setup.html
+# Local-only
+.claude/
+PROGRESS.md
+logs/
+# Stale generated PDF (reportlab generator retired; contains old examples).
+# Keep the Markdown as source of truth; do not ship the PDF in the public repo.
+docs/SYSTEM_DOCUMENTATION.pdf

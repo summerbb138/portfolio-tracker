@@ -1,0 +1,12 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Portfolio Tracker</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!--
+  The app lives in /pwa/ (the local server serves that directory). GitHub Pages
+  serves the repo root, so this root page forwards to the app. Single source of
+  truth remains pwa/index.html — do not duplicate app code here.
+-->
+<meta http-equiv="refresh" content="0; url=./pwa/">
+<script>location.replace('./pwa/' + location.search + location.hash);</script>
+<p>Redirecting to <a href="./pwa/">Portfolio Tracker</a>…</p>
