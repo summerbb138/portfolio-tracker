@@ -6,10 +6,10 @@ my-portfolio*.json
 *REAL-BACKUP*.json
 *portfolio*backup*.json
 setup.html
+# Rotating local data backups (real data — inside the tree so the ICC backup
+# tar captures them, but NEVER on GitHub).
+data/backups/
 # Local-only
 .claude/
 PROGRESS.md
 logs/
-# Stale generated PDF (reportlab generator retired; contains old examples).
-# Keep the Markdown as source of truth; do not ship the PDF in the public repo.
-docs/SYSTEM_DOCUMENTATION.pdf

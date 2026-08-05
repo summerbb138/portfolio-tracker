@@ -4,6 +4,14 @@ Module-level change record. System-level context: ICC `docs/SYSTEM_DOCUMENTATION
 
 ---
 
+## 2026-08-04 — v1.5 (build 26): foolproofing (version source, data location, backups, hook)
+
+- **One version source:** `pwa/version.js` (`APP_VERSION`/`APP_BUILD`). `sw.js` `importScripts` it and derives the cache name; `index.html` stamps the badge; `server.py` and the ICC (`shell/web.py` `_pwa_version()`) parse it. Bump one file to release.
+- **Live data outside the repo:** `server.py` now reads/writes `~/Library/Application Support/PortfolioTracker/my-portfolio.json` — cannot be committed. Migrated the real file there.
+- **Rotating backups:** `server.py` writes timestamped copies to `data/backups/` (last 10) on every sync — gitignored but inside `~/Desktop/Claude Summary`, so the ICC backup tar captures them.
+- **Pre-push hook:** `scripts/githooks/pre-push` (activate: `git config core.hooksPath scripts/githooks`) aborts any push containing portfolio-data-shaped JSON; tested.
+- **Docs:** PDF regenerated via shared `md_to_pdf.py` (bespoke `generate_pdf.py` retired). Full detail: system doc §26.6–26.7.
+
 ## 2026-08-04 — Public Pages hosting restored + history scrubbed (no app-code change)
 
 - **Root cause of broken iPhone updates:** the repo had been switched to private, which auto-disabled GitHub Pages on the free plan (Pages needs a public repo there). Live URL returned "Site not found"; the cached PWA kept running so it went unnoticed.

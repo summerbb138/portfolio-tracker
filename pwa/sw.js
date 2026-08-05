@@ -1,5 +1,9 @@
-const CACHE_NAME = 'portfolio-v25';
-const ASSETS = ['./index.html', './manifest.json'];
+// Version comes from the single source (version.js). Because the service-worker
+// update check byte-compares imported scripts, bumping version.js changes the
+// cache name AND triggers the SW update — no manual cache-name edits. See §26.
+importScripts('./version.js');
+const CACHE_NAME = 'portfolio-v' + self.APP_BUILD;
+const ASSETS = ['./index.html', './manifest.json', './version.js'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE_NAME).then(c => c.addAll(ASSETS)));

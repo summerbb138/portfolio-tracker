@@ -1,0 +1,78 @@
+#!/usr/bin/env python3
+"""Pre-push guard for the PUBLIC Portfolio Tracker repo.
+
+Blocks any push that would put real portfolio data on GitHub, independent of
+.gitignore (which can be bypassed with `git add -f` or a renamed file), and
+sanity-checks the single version source. Belt-and-suspenders for goal #2.
+
+Activate (once per clone):  git config core.hooksPath scripts/githooks
+See docs/SYSTEM_DOCUMENTATION.md §26.
+"""
+import json
+import os
+import re
+import subprocess
+import sys
+
+ZERO = "0" * 40
+
+
+def sh(*args):
+    return subprocess.run(args, capture_output=True, text=True).stdout
+
+
+def fail(msg):
+    sys.stderr.write("\nPRE-PUSH BLOCKED: %s\n\n" % msg)
+    sys.exit(1)
+
+
+root = sh("git", "rev-parse", "--show-toplevel").strip()
+
+# 1) The version single-source must exist and parse.
+vjs = os.path.join(root, "pwa", "version.js")
+if os.path.exists(vjs):
+    if not re.search(r'APP_VERSION\s*=\s*"[^"]+"', open(vjs).read()):
+        fail("pwa/version.js has no valid APP_VERSION (the single source of truth).")
+
+
+def looks_like_portfolio_data(text):
+    """True if the blob is a JSON object with a positions[] of holding objects."""
+    try:
+        obj = json.loads(text)
+    except Exception:
+        return False
+    pos = obj.get("positions") if isinstance(obj, dict) else None
+    if isinstance(pos, list) and pos:
+        for p in pos:
+            if isinstance(p, dict) and "costBasis" in p and ("qty" in p or "ticker" in p):
+                return True
+    return False
+
+
+for line in sys.stdin:
+    parts = line.split()
+    if len(parts) < 4:
+        continue
+    _localref, localsha, _remoteref, remotesha = parts[:4]
+    if localsha == ZERO:  # branch deletion
+        continue
+    if remotesha == ZERO:  # new branch on the remote — scan the tip tree
+        files = sh("git", "diff-tree", "--no-commit-id", "--name-only", "-r", localsha).split()
+    else:
+        files = sh("git", "diff", "--name-only", remotesha, localsha).split()
+    for f in set(files):
+        base = os.path.basename(f)
+        if base.startswith("my-portfolio") and f.endswith(".json"):
+            fail("'%s' is a portfolio data file — never commit data to this PUBLIC repo. See §26." % f)
+        ls = sh("git", "ls-tree", "-r", localsha, "--", f).split()
+        if len(ls) < 3:
+            continue  # deleted at tip
+        raw = subprocess.run(["git", "cat-file", "-p", ls[2]], capture_output=True).stdout
+        try:
+            content = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            continue  # binary blob (image/PDF) — never portfolio data
+        if looks_like_portfolio_data(content):
+            fail("'%s' looks like real portfolio data (positions[] with costBasis). See §26." % f)
+
+sys.exit(0)

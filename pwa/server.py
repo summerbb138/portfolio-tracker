@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
+import glob
 import http.server
 import json
 import logging
 import os
+import re
+import shutil
+import time
 import urllib.request
 import urllib.error
 from concurrent.futures import ThreadPoolExecutor
@@ -10,9 +14,48 @@ from concurrent.futures import ThreadPoolExecutor
 logger = logging.getLogger("portfolio")
 
 PORT = 8091
-VERSION = "1.5"
 DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_DIR = os.path.join(os.path.dirname(DIR), 'data')
+
+# Version: single source of truth is pwa/version.js (also consumed by the PWA
+# badge and the service-worker cache name). Parse it so this server can never
+# drift from the app. See docs/SYSTEM_DOCUMENTATION.md §26.
+def _read_version():
+    try:
+        txt = open(os.path.join(DIR, 'version.js')).read()
+        m = re.search(r'APP_VERSION\s*=\s*"([^"]+)"', txt)
+        return m.group(1) if m else '0'
+    except Exception as e:
+        logger.warning("could not read version.js: %s", e)
+        return '0'
+
+VERSION = _read_version()
+
+# The live data file lives OUTSIDE the git repo so it can never be committed to
+# the PUBLIC GitHub repo (goal #2). Do not point this back inside the repo.
+DATA_DIR = os.path.expanduser('~/Library/Application Support/PortfolioTracker')
+PORTFOLIO_FILE = os.path.join(DATA_DIR, 'my-portfolio.json')
+# Rotating backups live INSIDE the repo tree (data/backups/) — gitignored so
+# they never reach the public repo, but inside ~/Desktop/Claude Summary so the
+# ICC disaster-recovery tar captures them (goal #3). See §26.
+BACKUP_DIR = os.path.join(os.path.dirname(DIR), 'data', 'backups')
+MAX_BACKUPS = 10
+os.makedirs(DATA_DIR, exist_ok=True)
+os.makedirs(BACKUP_DIR, exist_ok=True)
+
+
+def _rotate_backup():
+    """After a successful write, keep the last MAX_BACKUPS timestamped copies
+    (outside the repo) so local data is always recoverable."""
+    try:
+        if not os.path.exists(PORTFOLIO_FILE):
+            return
+        ts = time.strftime('%Y%m%d-%H%M%S')
+        shutil.copy2(PORTFOLIO_FILE, os.path.join(BACKUP_DIR, f'my-portfolio.{ts}.json'))
+        backups = sorted(glob.glob(os.path.join(BACKUP_DIR, 'my-portfolio.*.json')))
+        for old in backups[:-MAX_BACKUPS]:
+            os.remove(old)
+    except Exception as e:
+        logger.warning("backup rotation failed: %s", e)
 
 MARKET_SUFFIX = {"US": "", "JP": ".T", "HK": ".HK", "UK": ".L", "EU": ".DE", "CA": ".TO", "AU": ".AX", "CN": ".SS"}
 MARKET_CURRENCY = {"US": "USD", "JP": "JPY", "HK": "HKD", "UK": "GBP", "EU": "EUR", "CA": "CAD", "AU": "AUD", "CN": "CNY"}
@@ -49,11 +92,10 @@ def _fetch_rates():
 
 
 def build_portfolio():
-    portfolio_file = os.path.join(DATA_DIR, 'my-portfolio.json')
-    if not os.path.exists(portfolio_file):
+    if not os.path.exists(PORTFOLIO_FILE):
         return {"positions": [], "totalValue": 0, "totalCost": 0, "totalPL": 0, "todayPL": 0}
 
-    with open(portfolio_file) as f:
+    with open(PORTFOLIO_FILE) as f:
         data = json.load(f)
 
     positions = data.get('positions', [])
@@ -148,9 +190,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
     def handle_positions(self):
         try:
-            portfolio_file = os.path.join(DATA_DIR, 'my-portfolio.json')
-            if os.path.exists(portfolio_file):
-                with open(portfolio_file) as f:
+            if os.path.exists(PORTFOLIO_FILE):
+                with open(PORTFOLIO_FILE) as f:
                     data = json.load(f)
                 self.send_json(data)
             else:
@@ -164,11 +205,13 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             body = json.loads(self.rfile.read(length)) if length else {}
             positions = body.get('positions', [])
             cash = body.get('cashBalances', {})
-            portfolio_file = os.path.join(DATA_DIR, 'my-portfolio.json')
+            # Snapshot the current file before overwriting, so a bad sync can't
+            # destroy good data (rotating backups outside the repo — see §26).
+            _rotate_backup()
             data = {"positions": positions, "cashBalance": 0}
             if cash:
                 data["cashBalances"] = cash
-            with open(portfolio_file, 'w') as f:
+            with open(PORTFOLIO_FILE, 'w') as f:
                 json.dump(data, f, indent=2)
                 f.write('\n')
             self.send_json({'success': True, 'positions': len(positions)})

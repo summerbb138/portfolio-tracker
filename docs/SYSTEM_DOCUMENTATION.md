@@ -85,10 +85,12 @@ If you've ever used a spreadsheet to track stocks, think of this as a nicer vers
 | Field | Value |
 |---|---|
 | Document title | Portfolio Tracker PWA — System Documentation |
-| Version | 1.5 (build 25) |
+| Version | 1.5 (build 26) |
 | Status | Active |
 | Owner | Doug |
 | Last updated | 2026-08-04 |
+
+> Version is set in `pwa/version.js` (`APP_VERSION` / `APP_BUILD`) — the single source of truth. Everything else derives from it (§26.6).
 | Storage location | ~/Desktop/Claude Summary/Portfolio Tracker/docs/ |
 | Live URL | https://summerbb138.github.io/portfolio-tracker/ |
 | GitHub repo | summerbb138/portfolio-tracker (public — no personal data in code) |
@@ -300,7 +302,10 @@ If any dependency disappears permanently, see Section 19 (API Reference) for wha
 | data/my-portfolio.json | Portfolio data for local import | No (gitignored) | Contains personal data |
 | docs/PROGRESS.md | Development progress notes | No (gitignored) | Build history and notes |
 | docs/SYSTEM_DOCUMENTATION.md | This document | Yes (public repo) | Keep in docs/ folder; Markdown is the source of truth |
-| docs/SYSTEM_DOCUMENTATION.pdf | (removed 2026-08-04) | — | No longer tracked: reportlab generator retired and the stale PDF held old ticker examples. Gitignored (`docs/SYSTEM_DOCUMENTATION.pdf`). Regenerate from the .md if a PDF is needed. |
+| docs/SYSTEM_DOCUMENTATION.pdf | PDF of this document | Yes | Regenerate on every change via the shared `Project Template/docs/md_to_pdf.py` (the bespoke `generate_pdf.py` was retired). |
+| pwa/version.js | Single source of truth for the version | Yes | `APP_VERSION` + `APP_BUILD`; read by sw.js, index.html, server.py, and the ICC. Bump this only. |
+| scripts/githooks/pre-push | Pre-push data/version guard | Yes | Activate per clone: `git config core.hooksPath scripts/githooks`. |
+| ~/Library/Application Support/PortfolioTracker/my-portfolio.json | Live portfolio data | No (outside repo) | Real data — outside the git tree by design (§26). Rotating backups in `data/backups/`. |
 
 ### Key files to know
 - **pwa/index.html** — the entire app. Edit this to change any feature. See Section 20 (Code Map) for a guide to what's where inside this file.
@@ -536,6 +541,7 @@ The original pure black background (`#000000`) made the summary card and holding
 | 2026-06-18 | 1.4 (build 8) | Active tab now permanently displays darker blue (#004494) for clear selection indicator; all toolbar buttons white-on-blue; background settled at #3a3a3c |
 | 2026-07-02 | 1.4 (build 9) | Standard `GET /api/health` endpoint added ({status, version, port}); ICC health pings excluded from access logs. Project under local git version control (commit after changes: `git add -A && git commit -m "..."`) |
 | 2026-08-04 | 1.5 (build 25) | **Cost now includes cash balances** (was stock cost only), consistent with Value — which already included cash. P&L is unchanged (cash appears on both sides and cancels); Return is now measured against total account capital (stock cost + cash), so idle cash dilutes the %. Server `/api/portfolio` (ICC feeder): `totalCost` now includes cash, which also fixes a pre-existing P&L overstatement where `totalValue` included cash but `totalCost` did not. UI build number realigned to the SW cache version (had drifted at build 8 while `sw.js` reached v25). |
+| 2026-08-04 | 1.5 (build 26) | **Foolproofing (§26.6):** single version source `pwa/version.js` (sw.js/index.html/server.py/ICC all derive from it — bump one file); live data moved OUTSIDE the repo (`~/Library/Application Support/PortfolioTracker/`) so it can't be committed; rotating `data/backups/` (last 10, gitignored, inside the disaster-recovery tar); committed pre-push hook (`scripts/githooks/pre-push`) that blocks data-shaped commits. Doc PDF now via shared `md_to_pdf.py`. |
 | 2026-08-04 | 1.5 (build 25) | **Restored public GitHub Pages hosting** (no app-code change). The repo had been switched to private, which silently disabled Pages on the free plan and broke iPhone updates. Reset git history to a single clean commit and hardened data privacy so no real portfolio data exists in the repo or its history; added a root `index.html` redirect to `/pwa/` (the app had moved to `/pwa/`, leaving the Pages root URL with nothing to serve); removed the stale generated PDF. Full procedure and future reminders: see §26. |
 
 ---
@@ -785,10 +791,11 @@ Plain-English definitions of technical terms used in this document.
 The iPhone PWA is served from GitHub Pages at `https://summerbb138.github.io/portfolio-tracker/`. On a **free GitHub plan, Pages serves only public repositories.** In mid-2026 the repo was switched to private; GitHub then **auto-disabled Pages**, the live URL began returning "Site not found," and iPhone updates silently stopped reaching the phone (the already-installed PWA kept running from its cache, so the breakage went unnoticed for weeks). Lesson: **do not make this repo private** while it hosts the PWA on the free plan. If privacy is ever required, the alternatives are a paid plan (private-repo Pages) or a different host — not simply flipping it private.
 
 ### 26.2 What keeps real data out of the repo
-- **Portfolio data never enters git.** It lives only in the browser's localStorage (iPhone + desktop) and in gitignored local files (`data/my-portfolio.json`, the local server's copy). GitHub Pages does **not** serve `data/` — verified: `data/my-portfolio.json` returns 404 on the live site.
-- **The app ships with no seed data.** New loads start with an empty portfolio (seed positions were removed in commit 5ad50e0 — see history note below).
-- **`.gitignore` is deliberately broad** so renamed/backup copies can't slip through: `my-portfolio*.json`, `*REAL-BACKUP*.json`, `*portfolio*backup*.json`, plus `setup.html`, `logs/`, `.claude/`, `PROGRESS.md`, and the stale `docs/SYSTEM_DOCUMENTATION.pdf`.
-- **Before every push:** grep the staged tree for real tickers/quantities/cost basis. Never `git add -f` a data file.
+- **The live data file lives OUTSIDE the repo.** `pwa/server.py` reads and writes `~/Library/Application Support/PortfolioTracker/my-portfolio.json` — physically outside the git tree, so it cannot be committed even by accident. Portfolio data also lives in each device's browser localStorage. GitHub Pages does not serve it (verified: the data path returns 404 on the live site).
+- **The app ships with no seed data.** New loads start with an empty portfolio (seed positions were removed in commit 5ad50e0 — see the history note below).
+- **`.gitignore` is deliberately broad** so any stray data or backup copy is caught: it ignores every `my-portfolio` JSON file (any suffix), any filename containing `REAL-BACKUP`, the `data/backups/` directory, `setup.html`, `logs/`, `.claude/`, and `PROGRESS.md`.
+- **A committed pre-push hook is the backstop** — `scripts/githooks/pre-push`, activated once per clone with `git config core.hooksPath scripts/githooks`. It aborts any push whose commits contain a JSON file shaped like portfolio data (a `positions` array of holdings carrying `costBasis`), independent of `.gitignore`, and refuses a push if `pwa/version.js` has lost its version. Tested to block a data-shaped file and pass clean changes.
+- **Before every push:** the hook runs automatically; still, never `git add -f` a data file.
 
 ### 26.3 The clean-up performed on 2026-08-04 (repeat this recipe if real data ever lands in git)
 Real positions had once been embedded as JavaScript seed data in early commits. The *working tree* was clean, but the *history* still held them — so making the repo public would have exposed them. Steps taken, in order:
@@ -796,7 +803,7 @@ Real positions had once been embedded as JavaScript seed data in early commits. 
 1. **Backup real data outside the repo:** copied `data/my-portfolio.json` → `~/Desktop/Claude Summary/Portfolio-REAL-BACKUP-<timestamp>.json`, and bundled the full pre-cleanup git history → `~/Desktop/Claude Summary/portfolio-tracker-FULL-HISTORY-<timestamp>.bundle` (so dev history isn't lost).
 2. **Swap in throwaway data** while working: set `data/my-portfolio.json` to a single dummy holding (AAPL, no cash).
 3. **Harden `.gitignore`** (the broad patterns in 26.2).
-4. **Scrub doc examples:** genericized ticker examples to AAPL / Toyota (7203.T); removed the stale generated PDF (it embedded old examples and can't be regenerated — reportlab retired).
+4. **Scrub doc examples:** genericized ticker examples to AAPL / Toyota (7203.T). (The doc PDF is regenerated cleanly from the Markdown — see 26.7.)
 5. **Reset history to a single clean commit:**
    ```
    git checkout --orphan clean-main
@@ -819,4 +826,15 @@ Real positions had once been embedded as JavaScript seed data in early commits. 
 `git push --force` makes the old commits *unreachable* on the branch, but **GitHub keeps them as dangling objects that are still fetchable by their exact 40-char SHA** (confirmed: the old seed-data commit responded to a public API call by SHA). Those SHAs are **not publicly discoverable** here (the commits were pushed while the repo was private; there are no forks, PRs, or public events exposing them), so practical exposure is very low — but it is not literally zero. To remove them **completely**, delete and recreate the repository (needs `delete_repo` permission), then push the clean tree and re-enable Pages. Until that is done, treat the pre-2026-08-04 commit SHAs as sensitive.
 
 ### 26.5 Deploy note — the root redirect
-The app lives in `/pwa/` (the local server serves that directory), but GitHub Pages serves the **repo root**. A minimal root `index.html` redirects to `./pwa/` so the documented root URL resolves. Keep it; it contains no app code. `pwa/index.html` remains the single source of truth.
+The app lives in `/pwa/` (the local server serves that directory), but GitHub Pages serves the **repo root**. A minimal root `index.html` redirects to `./pwa/` so the documented root URL resolves. Keep it; it contains no app code. `pwa/index.html` remains the single source of truth. The legacy root `sw.js` / `manifest.json` / icons are dormant migration shims for browsers that installed the old root-scoped app before it moved to `/pwa/` — leave them so those installs migrate cleanly.
+
+### 26.6 Foolproofing (added 2026-08-04) — one version source, data location, backups, hook
+Three mechanisms keep the standing risks from recurring:
+
+**(1) One version source — `pwa/version.js`.** It sets `APP_VERSION` and `APP_BUILD` and is the ONLY place the version is written. Everything derives from it: `pwa/sw.js` does `importScripts` on it and builds its cache name from `APP_BUILD` (so bumping the file changes the cache name AND triggers the service-worker update); `pwa/index.html` stamps its badge from it; `pwa/server.py` and the ICC shell (`shell/web.py`, `_pwa_version()`) parse it. To release, bump `version.js` only — never hard-code the version anywhere else.
+
+**(2) Live data outside the repo + (3) rotating backups inside it.** The live file is external (26.2). On every sync, `server.py` writes a timestamped copy to `data/backups/` and keeps the last 10. That directory is gitignored (never on GitHub) but sits inside `~/Desktop/Claude Summary`, so the ICC disaster-recovery tar captures it — the data stays recoverable without being exposed. The pre-push hook (26.2) is the commit backstop.
+
+### 26.7 Deviations from the house standards (recorded per PROJECT_STANDARDS)
+- **Data location:** the standard keeps data in the project's `data/` folder (gitignored). Because this repo is PUBLIC, the live data file is deliberately moved OUTSIDE the repo (26.2); its rotating backups stay under `data/backups/` so they remain inside the disaster-recovery backup. Approved trade-off: maximum commit-safety while staying recoverable.
+- **PDF generator:** the retired `generate_pdf.py` is gone; this doc's PDF is now produced by the shared `Project Template/docs/md_to_pdf.py`. Keep the prose free of bare asterisks — that converter mis-parses a literal asterisk even inside a code span.

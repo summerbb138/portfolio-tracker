@@ -464,7 +464,7 @@ body {
   <div class="sheet" onclick="event.stopPropagation()">
     <div class="sheet-handle"></div>
     <div class="action-sheet">
-      <div style="text-align:center;padding:8px 0 4px;font-size:14px;color:var(--text3)">Portfolio Tracker v1.5 (build 25)</div>
+      <div id="versionBadge" style="text-align:center;padding:8px 0 4px;font-size:14px;color:var(--text3)">Portfolio Tracker</div>
       <div class="action-group">
         <button class="action-item" onclick="closeSheet('actionsSheet'); refreshAll()">↻ &nbsp;Refresh All Prices</button>
         <button class="action-item" onclick="closeSheet('actionsSheet'); setTimeout(openCashSheet, 200)">💵 &nbsp;Set Cash Balance</button>
@@ -585,7 +585,12 @@ body {
 <!-- Hidden file input for import -->
 <input type="file" id="fileInput" accept=".json" style="display:none" onchange="handleImport(event)">
 
+<!-- Single source of truth for the version (also read by sw.js + servers). -->
+<script src="./version.js"></script>
 <script>
+// Stamp the version badge from version.js — never hard-code it here. See §26.
+try { document.getElementById('versionBadge').textContent =
+  'Portfolio Tracker v' + self.APP_VERSION + ' (build ' + self.APP_BUILD + ')'; } catch (e) {}
 const MARKETS = [
   { id: 'US', name: 'US', currency: 'USD', suffix: '', flag: '🇺🇸' },
   { id: 'JP', name: 'Japan', currency: 'JPY', suffix: '.T', flag: '🇯🇵' },
