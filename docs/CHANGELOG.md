@@ -4,6 +4,14 @@ Module-level change record. System-level context: ICC `docs/SYSTEM_DOCUMENTATION
 
 ---
 
+## 2026-08-04 — Public Pages hosting restored + history scrubbed (no app-code change)
+
+- **Root cause of broken iPhone updates:** the repo had been switched to private, which auto-disabled GitHub Pages on the free plan (Pages needs a public repo there). Live URL returned "Site not found"; the cached PWA kept running so it went unnoticed.
+- **Data privacy:** real holdings existed in early git history (seed data, removed in 5ad50e0). Reset history to a single clean commit (orphan branch + force-push), hardened `.gitignore`, genericized doc ticker examples (AAPL/Toyota), removed the stale PDF. Then made the repo public and enabled Pages. Verified live: `data/my-portfolio.json` and the PDF 404; remote tree has no real tickers.
+- **Residual:** old commits are dangling (fetchable only by exact, non-discoverable SHA). Full purge = delete+recreate the repo (needs `delete_repo`).
+- **Deploy fix:** added root `index.html` redirect to `/pwa/` (app had moved to `/pwa/`, leaving the Pages root URL empty).
+- Full procedure + future reminders: system doc §26.
+
 ## 2026-08-04 — v1.5 (build 25): Cost includes cash
 
 - **Cost now includes cash balances** in both the PWA and the ICC feeder, matching Value (which already included cash). P&L is unchanged (cash cancels on both sides); Return is now measured against total account capital (stock cost + cash).
