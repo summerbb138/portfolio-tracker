@@ -787,6 +787,16 @@ Plain-English definitions of technical terms used in this document.
 
 **Critical invariant: this repo is PUBLIC, and real portfolio data must NEVER exist in it — not in tracked files, and not in git history.** The repo is public because GitHub Pages (which delivers the iPhone PWA) only works on *public* repos under the free plan. This section records why, and exactly how we keep real data out, so no one has to reverse-engineer it later.
 
+### 26.0 The three traps we hit — and the guard for each (audit checklist)
+
+If you change anything here, confirm all three guards still hold:
+
+| Trap (what bit us) | Guard | Where |
+|---|---|---|
+| **PWA version and ICC-feeder version drift out of sync** (the badge said "build 8" while the service worker was at v24) | One version source, `pwa/version.js`. `sw.js`, `index.html`, `server.py`, and the ICC (`shell/web.py`) all derive from it — bump that one file to release, never hard-code the version elsewhere. | 26.6 |
+| **Real user data reaches the PUBLIC GitHub repo** | The live data file lives OUTSIDE the repo; `.gitignore` is broad; a committed pre-push hook blocks any push containing data-shaped JSON; the app ships with no seed data. | 26.2, 26.3 |
+| **User data lost on an app update** | **iPhone:** app code and your data are stored separately — an update replaces the code and never touches your on-device localStorage/IndexedDB (§22). **Computer / ICC:** every sync writes a rotating backup (last 10) to `data/backups/`, which is inside the ICC disaster-recovery tar. | §22 + 26.6 |
+
 ### 26.1 Why the repo is public (and must stay that way)
 The iPhone PWA is served from GitHub Pages at `https://summerbb138.github.io/portfolio-tracker/`. On a **free GitHub plan, Pages serves only public repositories.** In mid-2026 the repo was switched to private; GitHub then **auto-disabled Pages**, the live URL began returning "Site not found," and iPhone updates silently stopped reaching the phone (the already-installed PWA kept running from its cache, so the breakage went unnoticed for weeks). Lesson: **do not make this repo private** while it hosts the PWA on the free plan. If privacy is ever required, the alternatives are a paid plan (private-repo Pages) or a different host — not simply flipping it private.
 
