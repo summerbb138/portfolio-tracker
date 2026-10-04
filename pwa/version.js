@@ -7,4 +7,4 @@
 // change). Everything else derives from these two values — do not hard-code the
 // version anywhere else. See docs/SYSTEM_DOCUMENTATION.md §26.
 self.APP_VERSION = "1.5";
-self.APP_BUILD = 26;
+self.APP_BUILD = 27;

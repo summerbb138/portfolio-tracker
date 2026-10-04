@@ -1187,9 +1187,11 @@ function getSortedIndices() {
 }
 
 // API
+// Relay: personal Cloudflare Worker (see docs/SYSTEM_DOCUMENTATION.md §20).
+// Public proxies were removed 2026-10: corsproxy.io dropped anonymous access
+// (403 keyless_legacy_url, ~2026-09-13) and allorigins.win went down.
 const CORS_PROXIES = [
-  url => 'https://corsproxy.io/?' + encodeURIComponent(url),
-  url => 'https://api.allorigins.win/raw?url=' + encodeURIComponent(url),
+  url => 'https://portfolio-relay.summerbb138.workers.dev/?url=' + encodeURIComponent(url),
 ];
 const isLocalServer = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
 

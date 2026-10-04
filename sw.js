@@ -1,4 +1,4 @@
-const CACHE_NAME = 'portfolio-v25';
+const CACHE_NAME = 'portfolio-v27';
 const ASSETS = ['./index.html', './manifest.json'];
 
 self.addEventListener('install', e => {
@@ -16,7 +16,7 @@ self.addEventListener('activate', e => {
 });
 
 self.addEventListener('fetch', e => {
-  if (e.request.url.includes('/api/') || e.request.url.includes('corsproxy') || e.request.url.includes('allorigins') || e.request.url.includes('er-api.com')) {
+  if (e.request.url.includes('/api/') || e.request.url.includes('portfolio-relay.summerbb138.workers.dev') || e.request.url.includes('er-api.com')) {
     return;
   }
   e.respondWith(
