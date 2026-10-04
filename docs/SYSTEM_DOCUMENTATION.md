@@ -3,7 +3,7 @@
 Document status: Active  
 Version: 1.5  
 Date created: 2026-06-14  
-Last updated: 2026-08-04  
+Last updated: 2026-10-03  
 Prepared by: Doug + Claude Code Opus 4.6  
 
 > Personal iPhone app for tracking a multi-currency stock portfolio with live prices.  
@@ -85,10 +85,10 @@ If you've ever used a spreadsheet to track stocks, think of this as a nicer vers
 | Field | Value |
 |---|---|
 | Document title | Portfolio Tracker PWA — System Documentation |
-| Version | 1.5 (build 26) |
+| Version | 1.5 (build 27) |
 | Status | Active |
 | Owner | Doug |
-| Last updated | 2026-08-04 |
+| Last updated | 2026-10-03 |
 
 > Version is set in `pwa/version.js` (`APP_VERSION` / `APP_BUILD`) — the single source of truth. Everything else derives from it (§26.6).
 | Storage location | ~/Desktop/Claude Summary/Portfolio Tracker/docs/ |
@@ -221,7 +221,7 @@ The app now appears as a permanent icon, just like any other app. You never need
 | What you might notice | Why it happens | What to do |
 |---|---|---|
 | Prices don't update automatically | The app only fetches prices when you tap Refresh | Tap Refresh whenever you want current prices |
-| Prices might fail to load occasionally | The service that helps fetch prices (CORS proxy) can be slow | Wait a minute and tap Refresh again |
+| Prices might fail to load occasionally | The relay that helps fetch prices (Cloudflare Worker) can hiccup | Wait a minute and tap Refresh again |
 | Data could disappear after a Safari update | iPhone sometimes clears browser storage | The app auto-restores from backup; also use Export regularly |
 | Data is on one phone only | There's no cloud sync | Use Export/Import to move data between devices |
 | Cash can go negative | The app doesn't block you from buying without enough cash | Adjust cash balance manually via More menu |
@@ -244,7 +244,7 @@ Single HTML file containing all CSS and JavaScript. No build tools, no framework
 | pwa/index.html | Complete PWA (HTML + CSS + JS) | Single file, ~1800 lines |
 | localStorage | Primary data store | Per-origin, volatile on iOS |
 | IndexedDB | Backup data store | More durable than localStorage |
-| Yahoo Finance API | Stock price data | Via corsproxy.io CORS proxy |
+| Yahoo Finance API | Stock price data | Via personal Cloudflare Worker relay (build 27) |
 | open.er-api.com | Exchange rate data | Free, CORS-friendly, daily |
 | Service worker (sw.js) | Offline caching | Version-bumped on each deploy |
 | GitHub Pages | Static hosting | Free, permanent URL |
@@ -252,7 +252,7 @@ Single HTML file containing all CSS and JavaScript. No build tools, no framework
 ### Data flow
 1. User opens PWA → service worker serves cached HTML (or fetches from GitHub Pages)
 2. App loads positions/cash from localStorage; if empty, checks IndexedDB backup
-3. On Refresh: fetches exchange rates from er-api.com, then stock prices sequentially from Yahoo Finance via CORS proxy
+3. On Refresh: fetches exchange rates from er-api.com, then stock prices sequentially from Yahoo Finance via the Cloudflare relay
 4. Prices and rates saved to localStorage + IndexedDB; UI re-renders with updated values
 5. On buy/sell/edit: positions and cash updated in both localStorage and IndexedDB
 
@@ -264,8 +264,8 @@ Understanding *why* the app is built this way is critical for safe future change
 |---|---|---|
 | **Single HTML file (no framework, no build tools)** | Simplicity — one file to edit, deploy, and cache. No toolchain to install or break. Easy for Claude Code to work with. | PWA must be servable as a static file from GitHub Pages with zero build steps. |
 | **localStorage + IndexedDB (dual storage)** | localStorage is the primary store because it's synchronous and simple. IndexedDB is the backup because iOS Safari can silently purge localStorage under storage pressure (this actually happened — cash balances were lost). Dual-write means data survives purges. | iOS Safari's aggressive storage eviction is unpredictable. A single store is unreliable on iPhone. |
-| **Sequential API calls (not parallel)** | The CORS proxy (corsproxy.io) rate-limits concurrent requests. Parallel fetches caused failures on mobile. Sequential fetches with a small gap are slower but reliable. | Free CORS proxy has rate limits. We don't control the proxy server. |
-| **CORS proxy instead of a backend** | A backend would require hosting, maintenance, and a domain. The CORS proxy lets the browser fetch Yahoo Finance directly. Zero server cost, zero ops. | No-cost constraint: the entire system must run for free. |
+| **Sequential API calls (not parallel)** | One ticker at a time: gentler on Yahoo and the relay, and parallel fetches caused failures on mobile. Sequential is slower but reliable. | Free-tier quotas and mobile networks reward restraint. We control the relay, but requests still terminate at Yahoo. |
+| **CORS relay instead of a backend** | A backend would require hosting, maintenance, and a domain. Free public CORS proxies proved unreliable (both died in 2026, see §20), so the relay is now our own Cloudflare Worker — still zero server cost and zero ops, but under our control. | No-cost constraint: the entire system must run for free. |
 | **Service worker for caching** | Makes the app load instantly (from cache) and work offline. But requires manual version bumps — if you forget to bump sw.js, iPhones will serve stale code indefinitely. | GitHub Pages has no server-side cache control. The SW is the only caching mechanism. |
 | **Yahoo Finance v8 chart API** | Provides both current price and previous close in a single call. No API key required. Available globally. | The exact endpoint and response fields are undocumented by Yahoo — see Section 19 for what we use. |
 | **No authentication or user accounts** | Single-user tool. Adding auth would require a backend, breaking the zero-cost static hosting model. | Privacy requirement: no data leaves the device. |
@@ -276,9 +276,9 @@ Understanding *why* the app is built this way is critical for safe future change
 
 | Dependency | Type | Why needed | Failure impact | Where used in code |
 |---|---|---|---|---|
-| corsproxy.io | Web service (CORS proxy) | Bypass CORS restrictions on Yahoo Finance API | Prices won't update; last-fetched prices remain visible | `fetchPrice()` — line ~1050 |
+| Cloudflare Worker relay (`portfolio-relay.summerbb138.workers.dev`) | Self-hosted CORS relay (Cloudflare free tier) | Yahoo Finance is not CORS-enabled; the relay forwards chart requests and adds CORS headers for this app only | Prices won't update; last-fetched prices remain visible | `fetchPrice()` — line ~1050 |
 | open.er-api.com | Web API | Free USD exchange rates | Currency conversion uses stale rates | `fetchExchangeRates()` — line ~1029 |
-| Yahoo Finance v8 chart API | Web API | Stock prices + previous close | Same as corsproxy failure | `fetchPrice()` — line ~1050 |
+| Yahoo Finance v8 chart API | Web API | Stock prices + previous close | Same as relay failure | `fetchPrice()` — line ~1050 |
 | GitHub Pages | Hosting | Static file hosting with HTTPS | App won't load on first visit (cached version still works) | Deployment target |
 
 **No npm packages, no Python libraries, no build dependencies for the production app.**
@@ -455,7 +455,7 @@ The app makes three types of requests — all are to fetch *public* data. Your p
 | Problem | Likely cause | How to fix |
 |---|---|---|
 | Changes not appearing on iPhone | sw.js cache version not bumped | Bump version, push, user refreshes twice |
-| `fetchPrice()` returning null | CORS proxy rate-limiting or Yahoo API change | Check browser console; see Section 19 for API details |
+| `fetchPrice()` returning null | Relay or Yahoo unavailable, or Yahoo API change | Check browser console; see §20 for relay/API details |
 | Prices "succeed" but are stale | CORS proxy caching Yahoo responses, or Safari HTTP cache serving old responses | Two layers of defence: (1) `&_t=${Date.now()}` cache-buster on the Yahoo URL, (2) `cache: 'no-store'` in the fetch options. Both are needed — the URL trick defeats the proxy cache, the fetch option defeats Safari's browser cache |
 | Exchange rates stale | er-api.com response cached in localStorage | Tap Refresh, or manually clear `portfolio_rates` in console |
 | IndexedDB restore not working | Schema version mismatch after code change | Check `IDB_VERSION` constant and `openIDB()` upgrade handler |
@@ -542,6 +542,7 @@ The original pure black background (`#000000`) made the summary card and holding
 | 2026-07-02 | 1.4 (build 9) | Standard `GET /api/health` endpoint added ({status, version, port}); ICC health pings excluded from access logs. Project under local git version control (commit after changes: `git add -A && git commit -m "..."`) |
 | 2026-08-04 | 1.5 (build 25) | **Cost now includes cash balances** (was stock cost only), consistent with Value — which already included cash. P&L is unchanged (cash appears on both sides and cancels); Return is now measured against total account capital (stock cost + cash), so idle cash dilutes the %. Server `/api/portfolio` (ICC feeder): `totalCost` now includes cash, which also fixes a pre-existing P&L overstatement where `totalValue` included cash but `totalCost` did not. UI build number realigned to the SW cache version (had drifted at build 8 while `sw.js` reached v25). |
 | 2026-08-04 | 1.5 (build 26) | **Foolproofing (§26.6):** single version source `pwa/version.js` (sw.js/index.html/server.py/ICC all derive from it — bump one file); live data moved OUTSIDE the repo (`~/Library/Application Support/PortfolioTracker/`) so it can't be committed; rotating `data/backups/` (last 10, gitignored, inside the disaster-recovery tar); committed pre-push hook (`scripts/githooks/pre-push`) that blocks data-shaped commits. Doc PDF now via shared `md_to_pdf.py`. |
+| 2026-10-03 | 1.5 (build 27) | **Quotes moved to a self-hosted Cloudflare Worker relay** after the free public proxies died (details in §20): corsproxy.io dropped anonymous access ~2026-09-13 (`403 keyless_legacy_url`) and api.allorigins.win went down (522), so the iPhone app stopped updating on 2026-09-13. `CORS_PROXIES` is now a single entry at `https://portfolio-relay.summerbb138.workers.dev` (forwards Yahoo chart URLs only, origin-restricted, never cached); both service workers bypass the relay host. Relay + app path verified end-to-end (US/CA/JP tickers + iPhone refresh). |
 | 2026-08-04 | 1.5 (build 25) | **Restored public GitHub Pages hosting** (no app-code change). The repo had been switched to private, which silently disabled Pages on the free plan and broke iPhone updates. Reset git history to a single clean commit and hardened data privacy so no real portfolio data exists in the repo or its history; added a root `index.html` redirect to `/pwa/` (the app had moved to `/pwa/`, leaving the Pages root URL with nothing to serve); removed the stale generated PDF. Full procedure and future reminders: see §26. |
 
 ---
@@ -554,9 +555,9 @@ This section documents the exact external API calls the app makes. If any servic
 
 **URL template:**
 ```
-https://corsproxy.io/?url=https://query1.finance.yahoo.com/v8/finance/chart/{SYMBOL}?range=1d&interval=1d&_t={TIMESTAMP}
+https://portfolio-relay.summerbb138.workers.dev/?url=https://query1.finance.yahoo.com/v8/finance/chart/{SYMBOL}?range=1d&interval=1d&_t={TIMESTAMP}
 ```
-The `&_t={TIMESTAMP}` parameter is a cache-buster (set to `Date.now()`). Without it, the CORS proxy caches Yahoo's response and serves stale prices — this caused a bug where prices appeared to update successfully but showed yesterday's closing price instead of live market data.
+The `&_t={TIMESTAMP}` parameter is a cache-buster (set to `Date.now()`). The relay itself never caches, but the parameter is kept — historically (public-proxy era) a missing cache-buster caused prices to appear to update while actually showing yesterday's close, and it remains a guard against any upstream/browser caching.
 
 **SYMBOL format by market:**
 | Market | Suffix | Example |
@@ -580,7 +581,7 @@ response.chart.result[0].meta.currency              → currency code (USD, JPY,
 
 **Failure behavior:** If the fetch fails or times out (10-second timeout), the stock's price is left unchanged from the last successful fetch. No error is shown to the user — the "Updated" timestamp reveals staleness.
 
-**Rate limiting:** The CORS proxy rate-limits concurrent requests. Prices are fetched sequentially (one at a time) with no delay between them. If rate-limited, retrying after ~30 seconds usually works.
+**Rate limiting:** The relay runs on Cloudflare's free tier (100,000 requests/day — far above this app's needs). Prices are fetched sequentially (one at a time) with no delay between them, which keeps Yahoo happy too.
 
 ### Exchange rates — open.er-api.com
 
@@ -599,22 +600,23 @@ response.rates.GBP  → e.g., 0.79
 
 **Failure behavior:** If the fetch fails, the app falls back to hardcoded approximate rates defined in `fetchExchangeRates()` (line ~1029). These are rough approximations — the UI still works but currency conversion may be inaccurate.
 
-### CORS proxy — fallback chain
+### CORS relay — personal Cloudflare Worker
 
-**How it works:** The browser can't call Yahoo Finance directly due to CORS restrictions (Yahoo doesn't allow requests from web pages). The app uses a chain of free CORS proxy services, trying each in order until one succeeds. The chain is defined in the `CORS_PROXIES` array (~line 1024):
+**How it works:** The browser can't call Yahoo Finance directly due to CORS restrictions (Yahoo doesn't allow requests from web pages). Since build 27 the app routes Yahoo requests through our own Cloudflare Worker, `portfolio-relay`, defined in the `CORS_PROXIES` array (~line 1189 in `pwa/index.html`). The `fetchViaProxy()` function tries each entry in order — currently just the worker:
 
-1. **corsproxy.io** (primary) — fast and reliable from browser JS. Note: blocks server-side requests (curl/scripts get a 403), but browser `fetch()` calls work.
-2. **api.allorigins.win** (fallback) — slower but independent infrastructure.
+```
+https://portfolio-relay.summerbb138.workers.dev/?url={URL-encoded Yahoo chart URL}
+```
 
-The `fetchViaProxy()` function (~line 1040) tries each proxy in order and returns the first successful response.
+The worker forwards only `query1`/`query2.finance.yahoo.com` `/v8/finance/chart/*` URLs, answers CORS only for this app's origin (`https://summerbb138.github.io`) and the local dev servers (`localhost:8091`), refuses all other targets (403), logs nothing, stores nothing, and never caches (`Cache-Control: no-store`). Account: Cloudflare free plan (summerbb138@gmail.com), Worker name `portfolio-relay`. Any future browser-based fetcher in the fleet can reuse the same relay account.
 
-**Critical: two layers of cache-busting are required.**
-1. **URL parameter:** corsproxy.io caches upstream responses. The `&_t=${Date.now()}` parameter on the Yahoo URL makes each request look unique to the proxy.
-2. **Fetch option:** Safari on iPhone aggressively caches HTTP responses. The `cache: 'no-store'` option in `fetchJSON()` forces Safari to bypass its browser cache entirely.
+**Why we moved (2026-10):** The chain of free public proxies died. corsproxy.io dropped anonymous keyless access (~2026-09-13; `403 keyless_legacy_url`, API key now required) and api.allorigins.win went down (Cloudflare 522) — the iPhone app stopped updating on 2026-09-13 and showed only a stale "Updated" timestamp. Public proxies are not production infrastructure; the relay is.
 
-Both are needed. Without the URL trick, the proxy serves stale data. Without `cache: 'no-store'`, Safari serves a cached proxy response without even hitting the proxy. In both cases, the response looks valid — the price field is present, but it's an old price instead of the live one. This caused recurring bugs where all fetches "succeeded" but prices never changed.
+**Critical: two layers of cache defence remain.**
+1. **URL parameter:** The `&_t=${Date.now()}` cache-buster on the Yahoo URL makes each request unique. (Public proxies cached upstream responses; the relay doesn't, but the buster costs nothing and guards against upstream/browser caches.)
+2. **Fetch option:** Safari on iPhone aggressively caches HTTP responses. The `cache: 'no-store'` option in `fetchJSON()` forces Safari to bypass its browser cache entirely. Both service workers also bypass the relay host in their fetch handlers so quote JSON is never cached by the SW.
 
-**If all proxies fail permanently:** Add a new proxy function to the `CORS_PROXIES` array. Each entry is a function that takes a URL and returns the proxied URL. Alternatives: cors-anywhere (self-hosted), Cloudflare Workers proxy, or any service that adds `Access-Control-Allow-Origin: *` to the response.
+**If the relay fails:** It's our code — check/redeploy the Worker in the Cloudflare dashboard (free plan). As a last resort, add a new entry to `CORS_PROXIES`; each entry maps a URL to a proxied URL.
 
 ---
 
@@ -669,7 +671,7 @@ The entire application is in `index.html` (~1800 lines). This map shows where ev
 
 **`render()` (line ~1156)** — The most important function. Rebuilds the entire UI from state. Uses a two-pass approach: first pass calculates totals, second pass renders HTML. Tab-aware (shows cost P&L or daily change based on `activeTab`). Sort-aware (uses `getSortedIndices()`). If you change the UI, this is where you'll work.
 
-**`fetchPrice(index)` (line ~1050)** — Fetches one stock's price from Yahoo via CORS proxy. Extracts `regularMarketPrice` and `chartPreviousClose` from the response. Called sequentially by `refreshAll()`.
+**`fetchPrice(index)` (line ~1050)** — Fetches one stock's price from Yahoo via the Cloudflare relay. Extracts `regularMarketPrice` and `chartPreviousClose` from the response. Called sequentially by `refreshAll()`.
 
 **`save()` / `saveCashBalances()` (lines 606–607)** — Every mutation to positions or cash must call these. They write to localStorage AND trigger `backupToIDB()`. If you add a new data type, follow the same pattern.
 
@@ -749,7 +751,7 @@ When modifying Portfolio Tracker code, follow these rules to avoid breaking the 
 - **localStorage read/write** — the iPhone PWA relies on localStorage as its primary store. Never change the storage keys (`STORAGE_KEY`, `CASH_MULTI_KEY`) without a migration path.
 - **IndexedDB backup/restore** — this is the safety net for iOS storage purges. Don't change the schema version without handling the upgrade.
 - **Offline functionality** — the PWA must load and display cached data without network access. API calls (`/api/*`) are excluded from service worker caching, but the HTML/JS must work offline.
-- **Sequential price fetching** — the CORS proxy rate-limits concurrent requests. Don't switch to parallel fetching for client-side quote calls.
+- **Sequential price fetching** — one ticker at a time; don't switch to parallel fetching for client-side quote calls.
 
 ### Safe to change
 
@@ -769,7 +771,7 @@ Plain-English definitions of technical terms used in this document.
 | **localStorage** | A storage area inside your web browser where websites can save small amounts of data. It stays there until you clear your browser data or your phone decides to free up space. |
 | **IndexedDB** | A second, more durable storage area inside your browser. The app uses both localStorage and IndexedDB as a safety measure. |
 | **Service worker** | A small helper program that runs in the background. In this app, it saves a copy of the app so it loads instantly and works even without internet. |
-| **CORS proxy** | A middleman service on the internet. Yahoo Finance doesn't allow web apps to fetch prices directly, so the app sends requests through this middleman (corsproxy.io) which forwards them. |
+| **CORS proxy** | A middleman service on the internet. Yahoo Finance doesn't allow web apps to fetch prices directly, so the app sends requests through a middleman that forwards them. Since build 27 this is our own Cloudflare Worker (`portfolio-relay`); before that, free public proxies. |
 | **GitHub Pages** | A free service from GitHub that hosts websites. The app's code lives here so anyone with the URL can access it. |
 | **JSON** | A standard file format for storing data. When you export your portfolio, it's saved as a JSON file — a plain text file that both humans and computers can read. |
 | **API (Application Programming Interface)** | A way for one program to request data from another. The app uses Yahoo Finance's API to ask for stock prices and open.er-api.com's API to ask for exchange rates. |

@@ -4,6 +4,14 @@ Module-level change record. System-level context: ICC `docs/SYSTEM_DOCUMENTATION
 
 ---
 
+## 2026-10-03 — v1.5 (build 27): self-hosted fetch relay (Cloudflare Worker)
+
+- **What broke:** The iPhone app stopped updating on 2026-09-13. Root cause: the free public CORS proxies died — corsproxy.io dropped anonymous keyless access (403 `keyless_legacy_url`; API key now required) and api.allorigins.win was down (CDN 522). The Mac copy was unaffected (`server.py` fetches Yahoo directly).
+- **Fix:** Quotes now route through our own Cloudflare Worker, `portfolio-relay` (`https://portfolio-relay.summerbb138.workers.dev`), on the free tier (100k requests/day). The Worker forwards only Yahoo Finance v8 chart URLs, answers CORS only for the app's GitHub Pages origin (`localhost:8091` also allowed for local dev), refuses everything else, logs nothing, and never caches (`Cache-Control: no-store`).
+- **Files:** `pwa/index.html` (`CORS_PROXIES` → single worker entry), `pwa/sw.js` + root `sw.js` (relay host added to the fetch bypass so quote JSON is never cached), `pwa/version.js` (`APP_BUILD` 26 → 27). Relay account: Cloudflare free plan, summerbb138@gmail.com — reusable by future browser-based fetchers in the fleet.
+- **Verified:** relay returns live quotes (AAPL/US, SHOP.TO/CA, 7203.T/JP incl. 5-day history); non-Yahoo targets rejected with 403; live site serves build 27; iPhone refresh confirmed by user.
+- **Docs:** system documentation §11/§19/§20 updated; PDF regenerated with the shared `md_to_pdf.py`.
+
 ## 2026-08-04 — v1.5 (build 26): foolproofing (version source, data location, backups, hook)
 
 - **One version source:** `pwa/version.js` (`APP_VERSION`/`APP_BUILD`). `sw.js` `importScripts` it and derives the cache name; `index.html` stamps the badge; `server.py` and the ICC (`shell/web.py` `_pwa_version()`) parse it. Bump one file to release.
